@@ -19,5 +19,24 @@
   "dependencies": {
     "@cognitive-fab/sam-pattern": "^2.2.0",
     "polygraph": "github:cognitive-fab/polygraph"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cognitive-fab/polyflow.git"
+  },
+  "homepage": "https://github.com/cognitive-fab/polyflow#readme",
+  "bugs": {
+    "url": "https://github.com/cognitive-fab/polyflow/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "mcp",
+    "workflow-engine",
+    "durable-execution",
+    "model-checking",
+    "state-machine",
+    "procedural-memory",
+    "openworker",
+    "polyrun"
+  ]
 }
