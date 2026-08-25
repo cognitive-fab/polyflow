@@ -1,0 +1,17 @@
+{
+  "name": "polyflow",
+  "version": "0.1.0",
+  "description": "A workflow engine for AI agents: the agent reasons a workflow, polyflow admits it only if it model-checks, then runs it durably and hands the agent one work order at a time.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "polyflow-mcp": "bin/polyflow-mcp.mjs"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/*.test.mjs\"",
+    "mcp": "node bin/polyflow-mcp.mjs"
+  },
+  "dependencies": {
+    "@cognitive-fab/sam-pattern": "^2.2.0"
+  }
+}

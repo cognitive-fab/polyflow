@@ -1,0 +1,25 @@
+{
+  "name": "unsafe-brief",
+  "description": "Deliberately broken twin of customer-brief: it posts as soon as the draft is ready, without waiting for the human. Used to prove the admission gate refuses it.",
+  "area": "openworker/cowork",
+  "inputAction": "START",
+  "tools": {
+    "fetch_tickets": {
+      "tool": "github_search_issues",
+      "why": "gather yesterday's support tickets"
+    },
+    "draft_brief": {
+      "tool": "ask",
+      "why": "draft the brief from the gathered tickets"
+    },
+    "request_approval": {
+      "tool": "ask_user",
+      "why": "the next step posts publicly - get a human decision"
+    },
+    "post_brief": {
+      "tool": "slack_send",
+      "target": "#cs",
+      "why": "publish the approved brief"
+    }
+  }
+}
