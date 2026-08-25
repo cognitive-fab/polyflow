@@ -1,3 +1,5 @@
 .polyflow/
 node_modules/
 spike/
+.env
+*.env
