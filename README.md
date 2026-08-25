@@ -129,17 +129,44 @@ harmlessly ignored without it.
 `node_modules/polygraph`, then a sibling checkout; `POLYFLOW_POLYRUN` overrides
 both.
 
-### Any other MCP host
+### Other agent hosts
 
-Any MCP-capable agent (Claude Code, Cursor, …) takes the same entry:
+polyflow is a plain MCP stdio server, so anything that speaks MCP can use it.
+The installer writes the right file for each host:
 
-```json
-{ "mcpServers": { "polyflow": {
-    "command": "node",
-    "args": ["/path/to/polyflow/bin/polyflow-mcp.mjs"],
-    "cwd": "/path/to/polyflow",
-    "env": { "POLYFLOW_AGENT": "claude-code", "POLYFLOW_INSTANCE": "my-project" } } } }
+```bash
+node bin/polyflow-install.mjs --host kiro          # ~/.kiro/settings/mcp.json
+node bin/polyflow-install.mjs --host kiro --scope workspace   # ./.kiro/settings/mcp.json
+node bin/polyflow-install.mjs --host claude-code   # ./.mcp.json
+node bin/polyflow-install.mjs --host generic       # prints the entry, writes nothing
 ```
+
+Two hosts take a different shape and are printed rather than written:
+
+```bash
+node bin/polyflow-install.mjs --host nemo      # YAML for a NeMo Agent Toolkit workflow
+node bin/polyflow-install.mjs --host registry  # AWS CLI call to publish an Agent Registry record
+```
+
+- **Kiro / Kiro Crew** reads `mcpServers` from `~/.kiro/settings/mcp.json` (user)
+  or `.kiro/settings/mcp.json` (workspace, which wins on a name clash). Kiro
+  Crew's recurring unattended jobs are the same shape as OpenWorker's scheduled
+  jobs, which is the case the results in
+  [`FINDINGS-phase3.md`](FINDINGS-phase3.md) are about.
+- **NVIDIA NeMo Agent Toolkit** connects through its `mcp_client` function
+  group (needs `nvidia-nat-mcp`). The printed block declares the group and adds
+  it to a workflow's `tool_names`. NeMo can also run as an MCP server itself, so
+  a NeMo workflow can be one of the tools a polyflow work order names.
+- **AWS Agent Registry** is a catalog rather than a runtime: publishing a record
+  lets other people and agents in the organization discover polyflow. Records
+  can be synchronized from an HTTPS endpoint, which a stdio server has no way to
+  offer, so the printed command creates a manual MCP record instead.
+
+**Only the OpenWorker path has been exercised end to end** (see
+[`FINDINGS-phase2.md`](FINDINGS-phase2.md)). The others are built from each
+host's documented configuration format and have not been run.
+
+Env vars, whichever host you use:
 
 | env | meaning | default |
 |---|---|---|
