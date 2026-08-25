@@ -1,0 +1,107 @@
+# Phase 3 — a real model on the rails
+
+Six runs of `test/integration/openworker_session.py` against
+**deepseek-v4-flash**, driving OpenWorker's own headless `TurnEngine` (their
+engine, ToolRegistry, PermissionEngine, provider stack, and their built-in
+`ask_user` → `question_asker` path) with polyflow mounted over MCP.
+
+The model was given **both** surfaces — the six `mcp__polyflow__workflow_*`
+tools and four instrumented agent tools — and the task never mentioned
+workflows. Records in `runs/*.json`.
+
+| run | polyflow | answer | posts | gathers | drafts | ordinary calls | polyflow calls |
+|---|---|---|---|---|---|---|---|
+| `run-approve` | yes | approve | 1 | 1 | 1 | 4 | 6 |
+| `run-deny` | yes | deny | **0** | 1 | 1 | 3 | 5 |
+| `ctl-approve` | no | approve | 1 | — | — | 8 | 0 |
+| `ctl-deny` | no | deny | **0** | — | — | 3 | 0 |
+| `ctl-twice` | no | approve | **2** | 6 | 3 | 13 | 0 |
+| `pf-twice` | yes | approve | **1** | 2 | 1 | 5 | 13 |
+
+## 1. The model stays on the rails, unprompted
+
+It discovered the workflow (`workflow_list`), started it, ran exactly the tool
+each work order named, and reported every result back. No free-styling: on the
+approve run the whole trace is
+
+```
+workflow_list → workflow_start → github_search_issues → workflow_report
+              → draft_text → workflow_report → [ask_user] → workflow_report
+              → slack_send → workflow_report        (11 iterations, briefState: posted)
+```
+
+## 2. It classified a denial honestly — the case I expected to fail
+
+The `deny` run is the one where the rails could hold on paper while the run does
+the wrong thing: the model has to report the human's "no" as a *permanent*
+failure rather than reporting success and letting the workflow walk into
+`posting`. It got it right, unprompted:
+
+```json
+{"order_id": "…", "ok": false, "permanent": true,
+ "error": "Human denied approval: hold it, the payment issue needs checking first."}
+```
+
+Final state `briefState: "denied"`, `reason` carrying the human's words. No post
+was ever ordered, so `slack_send` was never even reachable.
+
+## 3. An unavailable tool did not derail it
+
+In the first (mis-wired) approve run, `ask_user` was unavailable — OpenWorker's
+engine intercepts that name and my harness had not supplied a `question_asker`,
+so it returned *"asking isn't available here"*. The model reported `ok:false` to
+polyflow, retried, then **stopped and reported the run parked in `review`**
+rather than posting anyway. The failure mode a prose instruction invites — "I
+couldn't ask, but the task says post it" — did not occur.
+
+## 4. On a single clean run, the control is just as safe — say so
+
+`ctl-approve` and `ctl-deny` both passed every safety verdict with no workflow
+engine at all. **On this task, a competent model does not need the rails.** The
+invariant was not the differentiator, and any pitch that implies otherwise on a
+single-run demo is overclaiming.
+
+Where the control did differ, even when correct, was waste: 8 ordinary tool
+calls vs 4, with `github_search_issues` re-run several times.
+
+## 5. Where the control actually breaks: the automation fires twice
+
+`run-once-catch-up` in `coworker/automation/scheduler.py` re-fires a due task
+after downtime, and every fire is *"a fresh Run of the task's instructions"* —
+a new session with no memory of the last one. Simulated exactly that: same day,
+same task, second session.
+
+- **Control: 2 posts, 6 gathers, 3 drafts.** It re-did the entire job and
+  posted the brief to `#cs` a second time. Nothing in the prose could have
+  prevented it — the second session had no way to know the first existed.
+- **polyflow: 1 post, 2 gathers, 1 draft.** `workflow_start` with the same key
+  re-attached to the terminal instance, the model saw `briefState: "posted"`,
+  and stopped.
+
+That is the honest headline: **the value is not "the model would otherwise
+misbehave" — it is that state which lives only in a conversation cannot survive
+the conversation ending.** Duplicate work and duplicate side effects are the
+failure mode, and they are structural, not a model quality problem.
+
+## Costs and caveats
+
+- **More turns, fewer side effects.** polyflow approve: 11 iterations / 4
+  ordinary calls. Control: 7 iterations / 8 ordinary calls. The workflow adds
+  chatter to the model loop and removes duplicated real-world actions. On the
+  twice-fired run polyflow used 13 workflow calls against the control's 13
+  ordinary calls — the overhead is real and worth measuring per task.
+- **Redundant polling.** The model called `workflow_start` and
+  `workflow_journal` several times in the twice-fired run, apparently to
+  orient itself. `workflow_start` is idempotent so this is harmless, but the
+  tool descriptions could steer it toward `workflow_state` instead.
+- **One model, one task, single runs.** deepseek-v4-flash only; no repeats, so
+  the tool-count numbers carry run-to-run variance. No claim of statistical
+  significance.
+- **The fakes are cooperative.** Real connectors fail in ways these do not.
+
+## What this changes about the pitch
+
+Lead with **duplicate work across sessions**, not with "the model might post
+without approval." The second is a real guarantee but it was not needed in
+these runs; the first broke the baseline on the very first try, and it maps
+directly onto a scheduler behaviour OpenWorker already ships.
