@@ -70,35 +70,75 @@ npm test                       # 14 tests, no API key, deterministic
 node bin/polyflow-mcp.mjs      # MCP stdio server
 ```
 
-### Install into OpenWorker
+### Running alongside OpenWorker
+
+**Prerequisites:** Node 22+ (polyflow uses `node:sqlite`), and OpenWorker
+installed. polyflow needs no API key of its own — it never calls a model.
+
+**1. Register it.** From the polyflow directory:
 
 ```bash
 node bin/polyflow-install.mjs --agent openworker/cowork --workspace acme
-# --print to see the entry and the target path without writing
+# --print shows the entry and the target path without writing anything
 ```
 
-It merges a `polyflow` entry into OpenWorker's global `mcpServers` file — the
+This merges a `polyflow` entry into OpenWorker's global `mcpServers` file — the
 same one the Connectors page edits (`%APPDATA%\coworker\mcp.json` on Windows,
 `~/.config/coworker/mcp.json` otherwise, `$COWORKER_STATE_DIR` overriding both).
-Restart OpenWorker and the six tools appear as `mcp__polyflow__*`.
+It merges rather than replaces, and refuses to touch a file it cannot parse.
 
-The entry sets `requires_approval: false` deliberately: polyflow tools reach
-nothing outside the machine — the run's real side effects are the agent's OWN
-tools, which keep their own gates. It also declares `tool_risk` for the
-read-only tools, honoured with `upstream/0001-mcp-per-tool-risk-level.patch`
-applied and harmlessly ignored without it.
+**2. Restart OpenWorker.** There is no polyflow daemon to start or supervise:
+OpenWorker spawns `bin/polyflow-mcp.mjs` over stdio when a session opens and
+tears it down with the session. Run state lives in the SQLite file at
+`POLYFLOW_DB`, so it survives both.
 
-polyflow embeds [polyrun](https://github.com/cognitive-fab/polygraph) in
-process, resolved from `node_modules/polygraph`, then a sibling checkout;
-`POLYFLOW_POLYRUN` overrides both.
+**3. Check it came up.** The six tools appear as `mcp__polyflow__*`. Ask the
+agent to *"list the workflows you can run"* — it should come back with
+`customer-brief`, its `admitted: true`, and the five guarantees it was admitted
+under. If it does not, the Connectors page carries the standing error, and the
+server's own startup lines (`admitted:` / `REFUSED:`) go to stderr.
+
+**4. Use it.** Nothing special: give the agent a task a workflow covers and it
+picks the workflow up on its own — that is what
+[`FINDINGS-phase3.md`](FINDINGS-phase3.md) measures. To put a recurring job on
+it, create an ordinary OpenWorker automation whose instructions describe the
+task; the workflow re-attaches by derived key on every fire instead of starting
+over.
+
+**Areas.** `--agent` is the agent-class area (which library of workflows this
+kind of agent draws on) and `--workspace` is the instance area (whose runs
+these are). One polyflow install can serve several workspaces — register it
+once per workspace with a different `--workspace`, pointing at the same
+`POLYFLOW_DB` to share a store or different files to keep them apart.
+
+**Adding your own workflow.** Copy `workflows/customer-brief/` and edit the six
+files (see [A workflow](#a-workflow) below). Restart the server: a workflow
+that fails its emission check is refused at startup and cannot be started at
+all, so a bad edit fails loudly rather than at 3AM.
+
+**Permissions.** The installed entry sets `requires_approval: false`
+deliberately — polyflow tools reach nothing outside the machine, and the run's
+real side effects are the agent's OWN tools, which keep their own gates.
+Prompting on every `workflow_report` would put a dialog between the agent and
+its own bookkeeping. The entry also declares `tool_risk` for the read-only
+tools, honoured with `upstream/0001-mcp-per-tool-risk-level.patch` applied and
+harmlessly ignored without it.
+
+**Where polyrun comes from.** polyflow embeds
+[polyrun](https://github.com/cognitive-fab/polygraph) in process, resolved from
+`node_modules/polygraph`, then a sibling checkout; `POLYFLOW_POLYRUN` overrides
+both.
 
 ### Any other MCP host
+
+Any MCP-capable agent (Claude Code, Cursor, …) takes the same entry:
 
 ```json
 { "mcpServers": { "polyflow": {
     "command": "node",
     "args": ["/path/to/polyflow/bin/polyflow-mcp.mjs"],
-    "env": { "POLYFLOW_AGENT": "openworker/cowork", "POLYFLOW_INSTANCE": "acme" } } } }
+    "cwd": "/path/to/polyflow",
+    "env": { "POLYFLOW_AGENT": "claude-code", "POLYFLOW_INSTANCE": "my-project" } } } }
 ```
 
 | env | meaning | default |
