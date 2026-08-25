@@ -5,16 +5,19 @@
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
-    "polyflow-mcp": "bin/polyflow-mcp.mjs"
+    "polyflow-mcp": "bin/polyflow-mcp.mjs",
+    "polyflow-install": "bin/polyflow-install.mjs"
   },
   "scripts": {
     "test": "node --no-warnings --test \"test/*.test.mjs\"",
     "mcp": "node bin/polyflow-mcp.mjs",
     "test:seam": "spike\\.venv\\Scripts\\python.exe test/integration/openworker_seam.py",
     "test:session": "spike\\.venv\\Scripts\\python.exe test/integration/openworker_session.py",
-    "test:batch": "spike\\.venv\\Scripts\\python.exe test/integration/batch.py"
+    "test:batch": "spike\\.venv\\Scripts\\python.exe test/integration/batch.py",
+    "install:openworker": "node bin/polyflow-install.mjs"
   },
   "dependencies": {
-    "@cognitive-fab/sam-pattern": "^2.2.0"
+    "@cognitive-fab/sam-pattern": "^2.2.0",
+    "polygraph": "github:cognitive-fab/polygraph"
   }
 }

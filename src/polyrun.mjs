@@ -7,13 +7,21 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = process.env.POLYFLOW_POLYRUN
-  ? resolve(process.env.POLYFLOW_POLYRUN)
-  : resolve(here, '..', '..', 'polygraph');
+const has = (dir) => dir && existsSync(resolve(dir, 'polyrun', 'src', 'index.mjs'));
 
-if (!existsSync(resolve(root, 'polyrun', 'src', 'index.mjs'))) {
+// Installed dependency first, sibling checkout second, explicit override always
+// wins — so a packaged install and a working tree both just run.
+const candidates = [
+  process.env.POLYFLOW_POLYRUN && resolve(process.env.POLYFLOW_POLYRUN),
+  resolve(here, '..', 'node_modules', 'polygraph'),
+  resolve(here, '..', '..', 'polygraph'),
+];
+const root = candidates.find(has);
+
+if (!root) {
   throw new Error(
-    `polyrun not found at ${root}. Set POLYFLOW_POLYRUN to the polygraph checkout.`
+    'polyrun not found. Run `npm install`, or set POLYFLOW_POLYRUN to a polygraph checkout. ' +
+    `Looked in: ${candidates.filter(Boolean).join(', ')}`
   );
 }
 

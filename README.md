@@ -65,16 +65,34 @@ reading the diff could easily miss it. The gate does not.
 ## Quickstart
 
 ```bash
-npm install
-npm test                       # 11 tests, no API key, deterministic
+npm install                    # pulls polygraph (polyrun) as a dependency
+npm test                       # 14 tests, no API key, deterministic
 node bin/polyflow-mcp.mjs      # MCP stdio server
 ```
 
-polyflow embeds [polyrun](https://github.com/cognitive-fab/polygraph) in
-process. Point `POLYFLOW_POLYRUN` at your polygraph checkout if it is not a
-sibling directory.
+### Install into OpenWorker
 
-Register with an MCP-capable agent:
+```bash
+node bin/polyflow-install.mjs --agent openworker/cowork --workspace acme
+# --print to see the entry and the target path without writing
+```
+
+It merges a `polyflow` entry into OpenWorker's global `mcpServers` file — the
+same one the Connectors page edits (`%APPDATA%\coworker\mcp.json` on Windows,
+`~/.config/coworker/mcp.json` otherwise, `$COWORKER_STATE_DIR` overriding both).
+Restart OpenWorker and the six tools appear as `mcp__polyflow__*`.
+
+The entry sets `requires_approval: false` deliberately: polyflow tools reach
+nothing outside the machine — the run's real side effects are the agent's OWN
+tools, which keep their own gates. It also declares `tool_risk` for the
+read-only tools, honoured with `upstream/0001-mcp-per-tool-risk-level.patch`
+applied and harmlessly ignored without it.
+
+polyflow embeds [polyrun](https://github.com/cognitive-fab/polygraph) in
+process, resolved from `node_modules/polygraph`, then a sibling checkout;
+`POLYFLOW_POLYRUN` overrides both.
+
+### Any other MCP host
 
 ```json
 { "mcpServers": { "polyflow": {
@@ -146,6 +164,9 @@ order is re-offered — same intent id, at-least-once, absorbed by the machine.
 ✔ the admission gate certifies the demo workflow exhaustively
 ✔ workflow_list reports the guarantees the run was admitted under
 ✔ happy path: one order at a time, ending posted
+✔ the run key is derived from input, not chosen by the caller
+✔ an invalid key field is refused with an instruction, not honoured
+✔ a finished run says so, and says not to start another
 ✔ start is idempotent: re-attaching returns the run in progress
 ✔ a denial is a result, not a fault — and no post is ever ordered
 ✔ zero tickets ends the run rather than posting an empty brief
