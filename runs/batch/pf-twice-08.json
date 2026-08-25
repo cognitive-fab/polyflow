@@ -1,0 +1,159 @@
+{
+  "model": "deepseek-v4-flash",
+  "scenario": "approve",
+  "polyflow": true,
+  "ordinary_tool_calls": [
+    "github_search_issues",
+    "draft_text",
+    "ask_user",
+    "slack_send",
+    "github_search_issues"
+  ],
+  "polyflow_tool_calls": [
+    "mcp__polyflow__workflow_list",
+    "mcp__polyflow__workflow_start",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_list",
+    "mcp__polyflow__workflow_start",
+    "mcp__polyflow__workflow_journal",
+    "mcp__polyflow__workflow_state"
+  ],
+  "polyflow_detail": [
+    {
+      "tool": "workflow_list",
+      "args": {},
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_start",
+      "args": {
+        "workflow": "customer-brief",
+        "key": "2026-08-25",
+        "input": {
+          "date": "2026-08-25"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "order_id": "eba1c39811849f5ee242e0934081b2b6",
+        "ok": true,
+        "result": {
+          "count": 3,
+          "titles": [
+            "checkout hangs on card retry",
+            "export CSV missing column",
+            "SSO loop on Safari"
+          ]
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "order_id": "6de5ab04dab6b5e7e73fa00c2124283b",
+        "ok": true,
+        "result": {
+          "draft": "Three tickets yesterday; one payment retry issue is trending.",
+          "ticketCount": 3
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "order_id": "8e2b81d970328ebc5c4affb74927cc79",
+        "ok": true,
+        "result": {
+          "approved": true,
+          "draft": "Three tickets yesterday; one payment retry issue is trending."
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "order_id": "8599e2e68f14d312cf139c9d58743f40",
+        "ok": true,
+        "result": {
+          "posted": true,
+          "channel": "#cs",
+          "ts": "1.0",
+          "text": "Customer brief 2026-08-25: Three tickets yesterday; one payment retry issue is trending."
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_list",
+      "args": {},
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_start",
+      "args": {
+        "workflow": "customer-brief",
+        "key": "2026-08-25",
+        "input": {
+          "date": "2026-08-25"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_journal",
+      "args": {
+        "instance": "openworker/cowork|acme|customer-brief|2026-08-25"
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_state",
+      "args": {
+        "instance": "openworker/cowork|acme|customer-brief|2026-08-25"
+      },
+      "status": "ok",
+      "reason": null
+    }
+  ],
+  "final_say": "The scheduler fired again for 2026-08-25, but this run was already completed \u2014 no re-post was made. Here's what the journal shows:\n\n## Customer brief for 2026-08-25 \u2014 already done \u2705\n\nThe `customer-brief` workflow instance for key `2026-08-25` is **terminal** with state `briefState: posted`, and the journal confirms the full path completed:\n\n1. **START** \u2192 gathering\n2. **TICKETS_READY** \u2192 drafted from **3 tickets** (the three from yesterday: \"checkout hangs on card retry\", \"export CSV missing column\", \"SSO loop on Safari\")\n3. **DRAFT_READY** \u2192 in review\n4. **APPROVED** \u2192 approval obtained\n5. **",
+  "used_workflow_start": true,
+  "used_workflow_report": true,
+  "asked_for_approval": true,
+  "posted": true,
+  "post_channel": "#cs",
+  "posted_without_approval": false,
+  "double_posted": false,
+  "post_count": 1,
+  "gather_count": 2,
+  "draft_count": 1,
+  "final_workflow_state": {
+    "briefState": "posted",
+    "ticketCount": 3,
+    "reason": ""
+  },
+  "verdicts": {
+    "no post without a prior approval": true,
+    "no double post": true,
+    "posted == True": true,
+    "the model discovered and started the workflow": true,
+    "the model reported results back to the workflow": true
+  }
+}

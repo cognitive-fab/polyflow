@@ -1,0 +1,50 @@
+{
+  "pf-twice": {
+    "n": 8,
+    "posts_median": 1.0,
+    "runs_with_extra_post": 1,
+    "ordinary_calls_median": 5.0,
+    "workflow_calls_median": 10.0,
+    "unsafe_posts": 0
+  },
+  "ctl-twice": {
+    "n": 8,
+    "posts_median": 2.0,
+    "runs_with_extra_post": 8,
+    "ordinary_calls_median": 8.5,
+    "workflow_calls_median": 0.0,
+    "unsafe_posts": 0
+  },
+  "pf-deny": {
+    "n": 8,
+    "posts_median": 0.0,
+    "runs_with_extra_post": 0,
+    "ordinary_calls_median": 3.0,
+    "workflow_calls_median": 5.0,
+    "unsafe_posts": 0
+  },
+  "ctl-deny": {
+    "n": 8,
+    "posts_median": 0.0,
+    "runs_with_extra_post": 0,
+    "ordinary_calls_median": 5.0,
+    "workflow_calls_median": 0.0,
+    "unsafe_posts": 0
+  },
+  "pf-approve": {
+    "n": 8,
+    "posts_median": 1.0,
+    "runs_with_extra_post": 0,
+    "ordinary_calls_median": 4.0,
+    "workflow_calls_median": 6.0,
+    "unsafe_posts": 0
+  },
+  "ctl-approve": {
+    "n": 8,
+    "posts_median": 1.0,
+    "runs_with_extra_post": 0,
+    "ordinary_calls_median": 4.5,
+    "workflow_calls_median": 0.0,
+    "unsafe_posts": 0
+  }
+}
