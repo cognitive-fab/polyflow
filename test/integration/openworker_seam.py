@@ -102,9 +102,12 @@ async def main() -> int:
     # aisuite/OpenAI schema fidelity — the model never sees our schema directly.
     schemas = {s["function"]["name"]: s for s in registry.schemas()}
     start = schemas.get(tool_name("polyflow", "workflow_start"))
-    check("workflow_start keeps its required args through the schema bridge",
-          bool(start) and set(start["function"]["parameters"].get("required", [])) == {"workflow", "key"},
-          json.dumps(start["function"]["parameters"].get("required")) if start else "missing")
+    params = start["function"]["parameters"] if start else {}
+    check("workflow_start keeps its schema through the aisuite bridge",
+          set(params.get("required", [])) == {"workflow"}
+          and set(params.get("properties", {})) == {"workflow", "input", "key"},
+          json.dumps({"required": params.get("required"),
+                      "properties": sorted(params.get("properties", {}))}))
     check("tool names fit OpenAI's 64-char limit",
           all(len(n) <= 64 for n in names), max(names, key=len))
 
@@ -128,10 +131,17 @@ async def main() -> int:
           bool(brief) and "no-post-without-prior-approval" in (brief or {}).get("guarantees", []),
           json.dumps((brief or {}).get("guarantees")))
 
-    v = payload(await call("workflow_start", {"workflow": "customer-brief", "key": "seam-run"}))
+    v = payload(await call("workflow_start", {"workflow": "customer-brief", "input": {"date": "2026-08-25"}}))
     order = (v.get("next") or [{}])[0]
     check("workflow_start returns the first work order",
           order.get("tool") == "github_search_issues", json.dumps(order))
+    check("the run key is derived from input, not chosen", v.get("key") == "2026-08-25",
+          json.dumps(v.get("key")))
+
+    renamed = payload(await call("workflow_start", {
+        "workflow": "customer-brief", "key": "2026-08-25-r2", "input": {"date": "2026-08-25"}}))
+    check("a caller-supplied key cannot fork a second run",
+          renamed.get("instance") == v.get("instance"), json.dumps(renamed.get("key_note")))
     instance = v.get("instance")
 
     v = payload(await call("workflow_report", {"order_id": order["order_id"], "result": {"count": 3}}))

@@ -21,6 +21,8 @@ export function makeTools(pf) {
       status: v.status,
       state: v.state,
       done: v.done,
+      key: v.key,
+      already_complete: v.done ? true : undefined,
       next: v.orders.map((o) => ({
         order_id: o.orderId,
         tool: o.tool,
@@ -31,6 +33,10 @@ export function makeTools(pf) {
       })),
       waiting: !v.done && v.orders.length === 0
         ? 'nothing to do right now — the run is waiting on a timer. Re-attach later.'
+        : undefined,
+      note: v.done
+        ? 'this run is finished. Do NOT start another run of the same work under a ' +
+          'different key — report what this one did.'
         : undefined,
     };
   };
@@ -48,22 +54,31 @@ export function makeTools(pf) {
     {
       name: 'workflow_start',
       description:
-        'Start a run of a workflow, or re-attach to the run this key already names. Idempotent: ' +
-        'calling it again for the same key returns the run in progress rather than starting a ' +
-        'second one — this is how a nightly automation picks up where it left off. Returns the ' +
+        'Start a run of a workflow, or re-attach to the run this input already names. Idempotent: ' +
+        'calling it again for the same run returns the run in progress (or its finished state) ' +
+        'rather than starting a second one — this is how a nightly automation picks up where it ' +
+        'left off. Most workflows DERIVE the run identity from `input` (see the `key` field in ' +
+        'workflow_list); for those, any `key` you pass is ignored. If a run comes back already ' +
+        'finished, that is the answer — do not retry it under a different name. Returns the ' +
         'first work order.',
       inputSchema: {
         type: 'object',
-        required: ['workflow', 'key'],
+        required: ['workflow'],
         properties: {
           workflow: str('string', 'workflow name from workflow_list'),
-          key: str('string', 'stable key for this run (e.g. the date, the ticket id, the task id)'),
-          input: { type: 'object', description: 'data for the start action' },
+          input: {
+            type: 'object',
+            description: 'data for the start action. For a workflow that derives its run identity, '
+              + 'this must carry the fields workflow_list names under `key.derived_from`.',
+          },
+          key: str('string',
+            'only for workflows with no derived identity; ignored otherwise'),
         },
       },
       handler: async ({ workflow, key, input }) => {
-        const id = await pf.begin(workflow, key, input ?? {});
-        return view(id, -1);
+        const started = await pf.begin(workflow, key ?? null, input ?? {});
+        const v = await view(started.instanceId, -1);
+        return started.note ? { ...v, key_note: started.note } : v;
       },
     },
     {

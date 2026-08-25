@@ -46,7 +46,7 @@ test('workflow_list reports the guarantees the run was admitted under', async ()
 });
 
 test('happy path: one order at a time, ending posted', async () => {
-  let v = await call('workflow_start', { workflow: 'customer-brief', key: '2026-08-25' });
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-08-25' } });
   assert.equal(v.next.length, 1);
   assert.equal(v.next[0].tool, 'github_search_issues');
   assert.equal(v.state.briefState, 'gathering');
@@ -71,19 +71,52 @@ test('happy path: one order at a time, ending posted', async () => {
   assert.equal(v.next.length, 0);
 });
 
+test('the run key is derived from input, not chosen by the caller', async () => {
+  // An agent that finds a finished run must not be able to rename its way to a
+  // second one (FINDINGS-phase3.md §6).
+  const a = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-02-01' } });
+  assert.equal(a.key, '2026-02-01');
+
+  const renamed = await call('workflow_start', {
+    workflow: 'customer-brief', key: '2026-02-01-r2', input: { date: '2026-02-01' },
+  });
+  assert.equal(renamed.instance, a.instance, 'a supplied key must not create a second run');
+  assert.match(renamed.key_note, /ignored/);
+});
+
+test('an invalid key field is refused with an instruction, not honoured', async () => {
+  const bad = await call('workflow_start', {
+    workflow: 'customer-brief', input: { date: '2026-02-01-r2' },
+  }).catch((err) => err);
+  assert.ok(bad instanceof Error);
+  assert.match(bad.message, /input\.date = "2026-02-01-r2" does not match/);
+  assert.match(bad.message, /YYYY-MM-DD/);
+  assert.match(bad.message, /a second key would run the job again/);
+});
+
+test('a finished run says so, and says not to start another', async () => {
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-02-02' } });
+  v = await call('workflow_report', { order_id: v.next[0].order_id, result: { count: 0 } });
+  assert.equal(v.done, true);
+
+  const again = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-02-02' } });
+  assert.equal(again.already_complete, true);
+  assert.match(again.note, /Do NOT start another run/);
+});
+
 test('start is idempotent: re-attaching returns the run in progress', async () => {
-  const a = await call('workflow_start', { workflow: 'customer-brief', key: 'reattach' });
+  const a = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-02' } });
   assert.equal(a.state.briefState, 'gathering');
   const orderId = a.next[0].order_id;
 
-  const b = await call('workflow_start', { workflow: 'customer-brief', key: 'reattach' });
+  const b = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-02' } });
   assert.equal(b.instance, a.instance, 'same key must not start a second run');
   assert.equal(b.state.briefState, 'gathering');
   assert.equal(b.next[0].order_id, orderId, 'the open order is re-offered, not duplicated');
 });
 
 test('a denial is a result, not a fault — and no post is ever ordered', async () => {
-  let v = await call('workflow_start', { workflow: 'customer-brief', key: 'denied-run' });
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-03' } });
   v = await call('workflow_report', { order_id: v.next[0].order_id, result: { count: 3 } });
   v = await call('workflow_report', { order_id: v.next[0].order_id, result: {} });
   assert.equal(v.next[0].tool, 'ask_user');
@@ -101,7 +134,7 @@ test('a denial is a result, not a fault — and no post is ever ordered', async 
 });
 
 test('zero tickets ends the run rather than posting an empty brief', async () => {
-  let v = await call('workflow_start', { workflow: 'customer-brief', key: 'empty-run' });
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-04' } });
   v = await call('workflow_report', { order_id: v.next[0].order_id, result: { count: 0 } });
   assert.equal(v.state.briefState, 'denied');
   assert.equal(v.state.reason, 'no-empty-brief');
@@ -109,7 +142,7 @@ test('zero tickets ends the run rather than posting an empty brief', async () =>
 });
 
 test('a duplicate report is refused, not double-executed', async () => {
-  let v = await call('workflow_start', { workflow: 'customer-brief', key: 'dup-run' });
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-05' } });
   const orderId = v.next[0].order_id;
   v = await call('workflow_report', { order_id: orderId, result: { count: 3 } });
   assert.equal(v.state.briefState, 'drafting');
@@ -121,7 +154,7 @@ test('a duplicate report is refused, not double-executed', async () => {
 });
 
 test('an out-of-band action that does not apply is an observable reject', async () => {
-  const v = await call('workflow_start', { workflow: 'customer-brief', key: 'stale-run' });
+  const v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-01-06' } });
   const signalled = await call('workflow_signal', { instance: v.instance, action: 'POST_DONE' });
   assert.equal(signalled.state.briefState, 'gathering', 'state is unchanged');
 

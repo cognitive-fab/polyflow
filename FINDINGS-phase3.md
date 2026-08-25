@@ -122,11 +122,42 @@ opening a *new* instance.
 
 That is the honest boundary of the guarantee: **polyflow constrains what happens
 inside a run, not how many runs the agent starts.** The fix is not a stronger
-invariant, it is to take the key away from the model — a `keyTemplate` in the
-workflow descriptor (`"{date}"`) resolved by polyflow from the caller's input,
-with a declared uniqueness scope, so a second key for the same day is refused
-rather than honoured. Roughly where Phase 2's retired `workflow_ref` idea comes
-back, except polyflow can enforce it itself with no core change upstream.
+invariant — it is to take the key away from the model.
+
+### 6a. Derived keys — implemented, and it closes the gap
+
+A workflow now declares how its runs are identified, and polyflow resolves that
+from validated input instead of accepting a name:
+
+```json
+"key": { "template": "{date}",
+         "fields": { "date": { "pattern": "^\d{4}-\d{2}-\d{2}$",
+                               "description": "the day the brief covers, YYYY-MM-DD" } } }
+```
+
+Three layers, aimed at what the model actually did:
+
+1. a supplied `key` that disagrees with the derived one is **ignored**, with a
+   note saying so;
+2. an input field that fails its pattern is **refused with an instruction**
+   (*"Fix the input rather than inventing a different key — a second key would
+   run the job again"*), so the model can correct rather than route around;
+3. a terminal run answers `already_complete: true` plus *"Do NOT start another
+   run of the same work under a different key."*
+
+**Re-ran the same cell, n=8: 1 post in 8 of 8 runs, 0 extra posts.** Every
+`workflow_start` across all 8 runs resolved to the same key `2026-08-25` — the
+model never attempted a variant. Records in `runs/keyfix/`.
+
+| `pf-twice` | n | posts | ordinary calls (median) | extra posts |
+|---|---|---|---|---|
+| model-chosen key | 8 | 1×7, **2×1** | 5 | **1** |
+| derived key | 8 | **1×8** | 4.5 | **0** |
+
+The residual risk is unchanged and worth naming: a pattern cannot catch a
+*plausible but wrong* value. An agent that passes `date: "2026-08-26"` gets a
+legitimately different run. Identity is only as good as the field it is derived
+from.
 
 ## Costs and caveats
 

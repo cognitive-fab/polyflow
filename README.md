@@ -96,7 +96,7 @@ Register with an MCP-capable agent:
 | tool | does |
 |---|---|
 | `workflow_list` | what this agent knows how to do, and the guarantees each was admitted under |
-| `workflow_start` | start **or re-attach** — same key, same run, so a nightly task resumes instead of restarting |
+| `workflow_start` | start **or re-attach** — the run's identity is derived from validated input, so a nightly task resumes instead of restarting and an agent cannot rename its way to a second run |
 | `workflow_report` | report a tool result, receive the next order |
 | `workflow_state` | state + open orders, changes nothing |
 | `workflow_signal` | an out-of-band event; an action that does not apply is an observable reject |
@@ -121,7 +121,8 @@ why start and attach are one call.
 Six files in a directory:
 
 ```
-polyflow.workflow.json   name, area, tools{effect kind -> agent tool}
+polyflow.workflow.json   name, area, tools{effect kind -> agent tool},
+                         key{template,fields} — the run's identity, derived
 contract.json            states, actions, finite data domain
 machine.cjs              SAM v2 strict-profile module
 effects.cjs              pure mapper: transition -> work orders

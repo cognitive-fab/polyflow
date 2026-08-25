@@ -33,7 +33,7 @@ test('a workflow that can post before approval is REFUSED and cannot be started'
   // Refused means unregistered: not merely flagged, unrunnable.
   assert.equal(pf.admitted('unsafe-brief'), false);
   await assert.rejects(
-    () => pf.begin('unsafe-brief', 'nightly'),
+    () => pf.begin('unsafe-brief', 'nightly', {}),
     /refused by the admission gate/
   );
 
@@ -55,7 +55,7 @@ test('a run outlives the process: restart re-offers the open work order', async 
   const t1 = makeTools(first);
   const call1 = (n, a) => t1.find((x) => x.name === n).handler(a);
 
-  let v = await call1('workflow_start', { workflow: 'customer-brief', key: 'nightly-2026-08-25' });
+  let v = await call1('workflow_start', { workflow: 'customer-brief', input: { date: '2026-08-25' } });
   v = await call1('workflow_report', { order_id: v.next[0].order_id, result: { count: 3 } });
   v = await call1('workflow_report', { order_id: v.next[0].order_id, result: {} });
   assert.equal(v.state.briefState, 'review');

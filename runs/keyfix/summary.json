@@ -1,0 +1,10 @@
+{
+  "pf-twice": {
+    "n": 8,
+    "posts_median": 1.0,
+    "runs_with_extra_post": 0,
+    "ordinary_calls_median": 4.5,
+    "workflow_calls_median": 9.0,
+    "unsafe_posts": 0
+  }
+}

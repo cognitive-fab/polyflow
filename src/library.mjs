@@ -3,7 +3,8 @@
 // A workflow is a directory holding the five artifacts polyrun needs plus a
 // manifest that maps each effect kind to the AGENT tool that fulfils it:
 //
-//   polyflow.workflow.json   name, description, area, tools{kind -> {tool,target,why}}
+//   polyflow.workflow.json   name, description, area, tools{kind -> {tool,target,why}},
+//                            key{template,fields} — the run's identity, DERIVED
 //   contract.json            states, actions, finite data domain
 //   machine.cjs              SAM v2 strict-profile module
 //   effects.cjs              pure mapper: transition -> effect intents
@@ -19,6 +20,63 @@ import { pathToFileURL } from 'node:url';
 import { checkEffects, renderReport } from './polyrun.mjs';
 
 const DESCRIPTOR = 'polyflow.workflow.json';
+
+/**
+ * A workflow may DERIVE its run key from typed input fields instead of letting
+ * the caller name it. That is the difference between "this is the 2026-08-25
+ * run" and "this is whatever the agent decided to call it" — see
+ * FINDINGS-phase3.md §6: an agent that finds a completed run will otherwise
+ * invent a fresh key and legitimately do the job twice.
+ */
+function parseKeyPolicy(raw) {
+  if (!raw || !raw.template) return null;
+  const template = String(raw.template);
+  const names = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  if (names.length === 0) throw new Error(`key.template '${template}' names no fields`);
+  const declared = raw.fields ?? {};
+  const fields = names.map((name) => {
+    const f = declared[name] ?? {};
+    return {
+      name,
+      pattern: f.pattern ? new RegExp(f.pattern) : null,
+      patternSource: f.pattern ?? null,
+      description: f.description ?? '',
+    };
+  });
+  return { template, fields };
+}
+
+/** Resolve a run key from the caller's input, or explain precisely why not. */
+export function deriveKey(policy, input = {}) {
+  const problems = [];
+  let key = policy.template;
+  for (const field of policy.fields) {
+    const raw = input?.[field.name];
+    if (raw === undefined || raw === null || raw === '') {
+      problems.push(`input.${field.name} is required${field.description ? ` (${field.description})` : ''}`);
+      continue;
+    }
+    const value = String(raw);
+    if (field.pattern && !field.pattern.test(value)) {
+      problems.push(
+        `input.${field.name} = ${JSON.stringify(value)} does not match ${field.patternSource}` +
+        (field.description ? ` (${field.description})` : '')
+      );
+      continue;
+    }
+    key = key.replaceAll(`{${field.name}}`, value);
+  }
+  if (problems.length) {
+    const err = new Error(
+      `this workflow derives its run key from ${policy.fields.map((f) => `input.${f.name}`).join(', ')}, ` +
+      `not from a key you choose. ${problems.join('; ')}. ` +
+      `Fix the input rather than inventing a different key — a second key would run the job again.`
+    );
+    err.expected = true;
+    throw err;
+  }
+  return key;
+}
 
 export class Library {
   constructor(dir) {
@@ -51,6 +109,7 @@ export class Library {
       description: d.description ?? '',
       area: d.area ?? 'default',
       tools: d.tools ?? {},
+      key: parseKeyPolicy(d.key),
       inputAction: d.inputAction ?? 'START',
       contract: file('contract', 'contract.json'),
       module: file('machine', 'machine.cjs'),
@@ -64,9 +123,14 @@ export class Library {
   }
 
   get(name) { return this.workflows.get(name); }
+
+  get keyPolicies() {
+    return Object.fromEntries([...this.workflows].map(([n, w]) => [n, w.key]));
+  }
   list() {
     return [...this.workflows.values()].map((w) => ({
       name: w.name, description: w.description, area: w.area,
+      key: w.key ? { derived_from: w.key.fields.map((f) => f.name), template: w.key.template } : null,
       tools: Object.entries(w.tools).map(([kind, t]) => `${kind} -> ${t.tool}`),
       certified: w.certified,
     }));

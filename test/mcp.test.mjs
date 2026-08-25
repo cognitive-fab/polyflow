@@ -68,7 +68,7 @@ test('initialize, tools/list, tools/call over stdio', async (t) => {
 
   const started = await rpc('tools/call', {
     name: 'workflow_start',
-    arguments: { workflow: 'customer-brief', key: 'mcp-smoke' },
+    arguments: { workflow: 'customer-brief', input: { date: '2026-08-25' } },
   });
   assert.equal(started.result.structuredContent.next[0].tool, 'github_search_issues');
 

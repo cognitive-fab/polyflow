@@ -6,7 +6,7 @@
 // Nothing runs here on the strength of "it worked once".
 
 import { createRuntime } from './polyrun.mjs';
-import { Library } from './library.mjs';
+import { Library, deriveKey } from './library.mjs';
 import { Broker } from './broker.mjs';
 import { Area } from './areas.mjs';
 
@@ -73,7 +73,14 @@ export class Polyflow {
     return this.certificates.get(name)?.invariantNames ?? [];
   }
 
-  /** Start a run, or re-attach to the one this key already names. */
+  /**
+   * Start a run, or re-attach to the one this key already names.
+   *
+   * When the workflow declares a key policy the key is DERIVED from validated
+   * input fields and whatever key the caller passed is ignored. That is what
+   * stops an agent which finds a completed run from inventing a fresh key and
+   * doing the job a second time (FINDINGS-phase3.md §6).
+   */
   async begin(workflow, key, input = {}) {
     const wf = this.library.get(workflow);
     if (!wf) throw new Error(`unknown workflow '${workflow}'`);
@@ -83,9 +90,20 @@ export class Polyflow {
         `workflow '${workflow}' was refused by the admission gate and cannot be started:\n${cert?.report ?? 'no certificate'}`
       );
     }
+    let note;
+    if (wf.key) {
+      const derived = deriveKey(wf.key, input);
+      if (key && key !== derived) {
+        note = `key '${key}' ignored: this workflow's runs are identified by ` +
+               `${wf.key.template} = '${derived}', derived from the input you gave.`;
+      }
+      key = derived;
+    } else if (!key) {
+      throw Object.assign(new Error(`workflow '${workflow}' needs a key`), { expected: true });
+    }
     const instanceId = this.area.instanceId(workflow, key);
     await this.rt.create(workflow, instanceId, { action: wf.inputAction, data: input });
-    return instanceId;
+    return { instanceId, key, note };
   }
 
   /** State + open work orders. The agent's only view of the run. */
@@ -98,6 +116,7 @@ export class Polyflow {
       // 'active' is polyrun's live status; anything else (terminal, poisoned)
       // means the run is over regardless of what the state tree says.
       done: status !== 'active' || this._isTerminal(machineId, state),
+      key: Area.parse(instanceId).key,
     };
   }
 

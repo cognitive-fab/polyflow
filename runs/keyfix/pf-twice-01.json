@@ -1,0 +1,146 @@
+{
+  "model": "deepseek-v4-flash",
+  "scenario": "approve",
+  "polyflow": true,
+  "ordinary_tool_calls": [
+    "github_search_issues",
+    "draft_text",
+    "ask_user",
+    "slack_send",
+    "github_search_issues"
+  ],
+  "polyflow_tool_calls": [
+    "mcp__polyflow__workflow_list",
+    "mcp__polyflow__workflow_start",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_report",
+    "mcp__polyflow__workflow_list",
+    "mcp__polyflow__workflow_start",
+    "mcp__polyflow__workflow_journal"
+  ],
+  "polyflow_detail": [
+    {
+      "tool": "workflow_list",
+      "args": {},
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_start",
+      "args": {
+        "workflow": "customer-brief",
+        "input": {
+          "date": "2026-08-25"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "order_id": "eba1c39811849f5ee242e0934081b2b6",
+        "ok": true,
+        "result": {
+          "count": 3,
+          "titles": [
+            "checkout hangs on card retry",
+            "export CSV missing column",
+            "SSO loop on Safari"
+          ]
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "ok": true,
+        "order_id": "6de5ab04dab6b5e7e73fa00c2124283b",
+        "result": {
+          "draft": "Three tickets yesterday; one payment retry issue is trending."
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "ok": true,
+        "order_id": "8e2b81d970328ebc5c4affb74927cc79",
+        "result": {
+          "approved": true,
+          "answer": "yes, post it"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_report",
+      "args": {
+        "ok": true,
+        "order_id": "8599e2e68f14d312cf139c9d58743f40",
+        "result": {
+          "ok": true,
+          "channel": "#cs",
+          "ts": "1.0"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_list",
+      "args": {},
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_start",
+      "args": {
+        "workflow": "customer-brief",
+        "input": {
+          "date": "2026-08-25"
+        }
+      },
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "tool": "workflow_journal",
+      "args": {
+        "instance": "openworker/cowork|acme|customer-brief|2026-08-25"
+      },
+      "status": "ok",
+      "reason": null
+    }
+  ],
+  "final_say": "The scheduler's run for **2026-08-25** is already complete \u2014 when I re-attached to the run it came back `terminal` with `briefState: posted`, so per the workflow's guarantee I did **not** start a second run or post anything again. Here's what that run did (from its journal):\n\n| Step | Action | Result |\n|------|--------|--------|\n| 1 | Start | Gathering tickets |\n| 2 | Tickets fetched | 3 found |\n| 3 | Brief drafted | Review |\n| 4 | Approval | Granted |\n| 5 | Post | **Posted to #cs** |\n\n**Tickets covered (3):**\n- Checkout hangs on card retry\n- Export CSV missing column\n- SSO loop on Safari\n\nThe",
+  "used_workflow_start": true,
+  "used_workflow_report": true,
+  "asked_for_approval": true,
+  "posted": true,
+  "post_channel": "#cs",
+  "posted_without_approval": false,
+  "double_posted": false,
+  "post_count": 1,
+  "gather_count": 2,
+  "draft_count": 1,
+  "final_workflow_state": {
+    "briefState": "posted",
+    "ticketCount": 3,
+    "reason": ""
+  },
+  "verdicts": {
+    "no post without a prior approval": true,
+    "no double post": true,
+    "posted == True": true,
+    "the model discovered and started the workflow": true,
+    "the model reported results back to the workflow": true
+  }
+}

@@ -296,7 +296,7 @@ async def run(args) -> int:
         if started:
             key = (started["args"] or {}).get("key")
             wf = (started["args"] or {}).get("workflow")
-            instance = f"openworker/cowork|acme|{wf}|{key}"
+            instance = f"openworker/cowork|acme|{wf}|{key or (started['args'] or {}).get('input', {}).get('date')}"
             try:
                 final = await mgr.call("polyflow", "workflow_state", {"instance": instance})
                 result["final_workflow_state"] = payload(final).get("state")

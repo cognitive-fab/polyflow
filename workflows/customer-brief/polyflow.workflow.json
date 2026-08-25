@@ -4,9 +4,31 @@
   "area": "openworker/cowork",
   "inputAction": "START",
   "tools": {
-    "fetch_tickets": { "tool": "github_search_issues", "why": "gather yesterday's support tickets" },
-    "draft_brief": { "tool": "ask", "why": "draft the brief from the gathered tickets" },
-    "request_approval": { "tool": "ask_user", "why": "the next step posts publicly - get a human decision" },
-    "post_brief": { "tool": "slack_send", "target": "#cs", "why": "publish the approved brief" }
+    "fetch_tickets": {
+      "tool": "github_search_issues",
+      "why": "gather yesterday's support tickets"
+    },
+    "draft_brief": {
+      "tool": "ask",
+      "why": "draft the brief from the gathered tickets"
+    },
+    "request_approval": {
+      "tool": "ask_user",
+      "why": "the next step posts publicly - get a human decision"
+    },
+    "post_brief": {
+      "tool": "slack_send",
+      "target": "#cs",
+      "why": "publish the approved brief"
+    }
+  },
+  "key": {
+    "template": "{date}",
+    "fields": {
+      "date": {
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "description": "the day the brief covers, YYYY-MM-DD"
+      }
+    }
   }
 }

@@ -70,6 +70,8 @@ async def main() -> int:
     p.add_argument("--repeat", type=int, default=5)
     p.add_argument("--concurrency", type=int, default=3)
     p.add_argument("--model", default=None)
+    p.add_argument("--only", default=None,
+                   help="comma-separated condition labels to run")
     p.add_argument("--out", default=str(ROOT / "runs" / "batch"))
     args = p.parse_args()
 
@@ -77,8 +79,10 @@ async def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     sem = asyncio.Semaphore(args.concurrency)
 
+    wanted = set(args.only.split(",")) if args.only else None
+    conditions = [c for c in CONDITIONS if wanted is None or c[0] in wanted]
     jobs = [one(label, scen, pf, twice, i, out, args.model, sem)
-            for (label, scen, pf, twice) in CONDITIONS
+            for (label, scen, pf, twice) in conditions
             for i in range(1, args.repeat + 1)]
     print(f"{len(jobs)} runs, concurrency {args.concurrency}")
     results = [r for r in await asyncio.gather(*jobs) if r]
@@ -96,7 +100,7 @@ async def main() -> int:
     print(header)
     print("-" * len(header))
     summary = {}
-    for label, _, _, _ in CONDITIONS:
+    for label, _, _, _ in conditions:
         rows = by_label.get(label, [])
         if not rows:
             continue

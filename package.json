@@ -10,9 +10,9 @@
   "scripts": {
     "test": "node --no-warnings --test \"test/*.test.mjs\"",
     "mcp": "node bin/polyflow-mcp.mjs",
-    "test:seam": "spike/.venv/Scripts/python.exe test/integration/openworker_seam.py",
-    "test:session": "spike/.venv/Scripts/python.exe test/integration/openworker_session.py",
-    "test:batch": "spike/.venv/Scripts/python.exe test/integration/batch.py"
+    "test:seam": "spike\\.venv\\Scripts\\python.exe test/integration/openworker_seam.py",
+    "test:session": "spike\\.venv\\Scripts\\python.exe test/integration/openworker_session.py",
+    "test:batch": "spike\\.venv\\Scripts\\python.exe test/integration/batch.py"
   },
   "dependencies": {
     "@cognitive-fab/sam-pattern": "^2.2.0"
