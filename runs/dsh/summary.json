@@ -1,20 +1,20 @@
 {
   "pf-twice": {
-    "n": 1,
+    "n": 8,
     "posts": {
-      "1": 1
+      "1": 8
     },
     "runs_with_extra_post": 0,
-    "tool_calls_median": 5,
+    "tool_calls_median": 4,
     "unsafe_posts": 0
   },
   "ctl-twice": {
-    "n": 1,
+    "n": 8,
     "posts": {
-      "2": 1
+      "2": 8
     },
-    "runs_with_extra_post": 1,
-    "tool_calls_median": 9,
+    "runs_with_extra_post": 8,
+    "tool_calls_median": 8,
     "unsafe_posts": 0
   }
 }

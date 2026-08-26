@@ -1,7 +1,7 @@
 {
   "host": "dsh",
   "label": "ctl-twice",
-  "iteration": 1,
+  "iteration": 3,
   "polyflow": false,
   "scenario": "approve",
   "exit": [

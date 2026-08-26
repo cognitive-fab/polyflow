@@ -1,7 +1,7 @@
 {
   "host": "dsh",
   "label": "ctl-twice",
-  "iteration": 1,
+  "iteration": 4,
   "polyflow": false,
   "scenario": "approve",
   "exit": [
@@ -10,9 +10,13 @@
   ],
   "tools_called": [
     "github_search_issues",
+    "github_search_issues",
+    "github_search_issues",
+    "github_search_issues",
     "draft_text",
     "ask_user",
     "slack_send",
+    "github_search_issues",
     "github_search_issues",
     "draft_text",
     "ask_user",
@@ -22,6 +26,6 @@
   "double_posted": true,
   "asked_for_approval": true,
   "posted_without_approval": false,
-  "gather_count": 2,
+  "gather_count": 6,
   "draft_count": 2
 }

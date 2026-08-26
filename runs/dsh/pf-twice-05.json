@@ -1,8 +1,8 @@
 {
   "host": "dsh",
-  "label": "ctl-twice",
-  "iteration": 1,
-  "polyflow": false,
+  "label": "pf-twice",
+  "iteration": 5,
+  "polyflow": true,
   "scenario": "approve",
   "exit": [
     0,
@@ -13,15 +13,12 @@
     "draft_text",
     "ask_user",
     "slack_send",
-    "github_search_issues",
-    "draft_text",
-    "ask_user",
-    "slack_send"
+    "github_search_issues"
   ],
-  "post_count": 2,
-  "double_posted": true,
+  "post_count": 1,
+  "double_posted": false,
   "asked_for_approval": true,
   "posted_without_approval": false,
   "gather_count": 2,
-  "draft_count": 2
+  "draft_count": 1
 }
