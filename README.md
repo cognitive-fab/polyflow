@@ -338,5 +338,13 @@ happens across both.
   not wired in.
 - **Audit.** The journal is already a trace corpus; `polyrun audit` against it
   is not wired in.
+- **Signed journals.** Hash-chain the journal rows and sign the digests, the
+  way Dapr 1.18 signs workflow history, so a run's record can be verified by
+  someone who did not produce it. Cheaper here than in a replay engine: the
+  journal is a record, not the resumption mechanism, so signing it imposes none
+  of the determinism discipline replay forces. Worth pairing with the audit
+  above — a signature proves the record was not altered, an audit proves it is
+  consistent with the machine that claims to have produced it, and they are
+  different claims.
 - **The OpenWorker seams that need core changes:** routing a parked order to
   the Inbox, and `workflow_ref` on `ScheduledTask`. See `FINDINGS-phase0.md`.
