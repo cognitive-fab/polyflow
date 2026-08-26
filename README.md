@@ -1,18 +1,41 @@
 # polyflow
 
-**An agent can already resume a parked run. It cannot tell you what the resumed run is allowed to do.**
-
-polyflow is a workflow engine for AI agents. The agent reasons *a workflow*
-instead of *the next tool call*; polyflow admits that workflow only if it
-model-checks, then runs it durably and hands the agent one work order at a
-time.
+**A workflow engine for AI agents.** The agent runs a small state machine
+instead of deciding one tool call at a time. polyflow loads that workflow only
+if every path through it satisfies rules you wrote, then hands the agent one
+instruction at a time and keeps the run's state outside the conversation.
 
 It ships as an MCP server, so any MCP-capable agent — OpenWorker, Claude Code,
-Cursor — can use it with no changes to that agent's core.
+Kiro, Hermes, DeepSeek Harness — can use it with no changes to that agent's
+core.
 
 > Experimental, unproven, not peer-reviewed. The check is a **consistency
 > check, not a proof**, and "exhaustive" always means exhaustive over the
 > finite domain the contract declares. Every finding is a lead, not a result.
+
+## What it is for
+
+Work that repeats, outlives one session, and ends in something you cannot take
+back. A scheduled job that posts or files or charges. A deploy. Anything where
+doing it twice is a real problem and where you can write down a rule in one
+sentence.
+
+Two results from testing it against two different agent harnesses
+([`FINDINGS-phase3.md`](FINDINGS-phase3.md), 48 runs, records in
+[`runs/`](runs)):
+
+- A scheduled job that fires twice in one day — what a scheduler does after
+  downtime — **repeated the whole job and posted twice in 8 of 8 runs** without
+  polyflow. With it, **0 of 8**: the second session asked for the workflow by
+  name, saw it had finished, and stopped. Same split on both harnesses.
+- **No run in any condition posted without an approval, 48 out of 48** — with
+  polyflow and without it. On a single clean run the engine changes nothing
+  about safety. What separates them is the second run.
+
+The reason it holds: the workflow is not something the agent remembers. It is
+not compacted, summarized, or retrieved into a prompt. It sits in a database
+and the agent queries it. The second session did not recall that the job was
+done — it asked.
 
 ## The loop
 
@@ -32,14 +55,10 @@ order — which is what a model is actually good at — and reports the result.
 Sequencing, retries, timers, duplicate suppression and terminal conditions
 belong to the machine.
 
-## Why this and not a standing grant
+## Rules are checked before a workflow can run
 
-Today an unattended automation gets approved by *verb*: "allow `slack_send` to
-`#cs`", forever, for whatever the model decides to do with it. That is the
-ceiling when the plan is a prose instruction string re-planned on every run.
-
-polyflow approves a *plan*. `workflows/customer-brief/effect-invariants.mjs`
-holds the sentences a user can actually agree to:
+A workflow ships with invariants: rules that must hold on every path it can
+take, written as small predicates.
 
 ```js
 { name: 'no-post-without-prior-approval',
@@ -59,8 +78,13 @@ flagged, unrunnable:
 
 `test/fixtures/unsafe-brief` is the deliberately broken twin: it posts on
 entering review, before the human answers. It still calls `ask_user`, still
-targets the same channel, still satisfies the standing grant. A reviewer
-reading the diff could easily miss it. The gate does not.
+targets the same channel, still satisfies a standing grant on that tool. A
+reviewer reading the diff could easily miss it. The gate does not.
+
+Writing a checked rule beats a standing grant for the same reason. An
+unattended automation is normally approved by *verb* — "allow `slack_send` to
+`#cs`", forever, for whatever the model decides to do with it. That is the
+ceiling when the plan is a prose instruction re-planned on every run.
 
 ## Quickstart
 
@@ -291,6 +315,11 @@ order is re-offered — same intent id, at-least-once, absorbed by the machine.
 ✔ a workflow that can post before approval is REFUSED and cannot be started
 ✔ a run outlives the process: restart re-offers the open work order
 ✔ initialize, tools/list, tools/call over stdio
+✔ an empty file becomes a config with just our block
+✔ a config with no mcp_servers keeps every line it had
+✔ other servers survive, comments and all
+✔ re-running replaces our entry and only ours
+✔ values are quoted, so a Windows path is not read as YAML syntax
 ```
 
 The restart test is the one that matters: session 1 drives the run to the
