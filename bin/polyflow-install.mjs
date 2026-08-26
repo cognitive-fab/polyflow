@@ -6,6 +6,7 @@
 //   --host openworker   OpenWorker's global mcpServers file          (default)
 //   --host kiro         Kiro / Kiro Crew user or workspace config
 //   --host claude-code  .mcp.json in the current directory
+//   --host hermes       ~/.hermes/config.yaml, under mcp_servers:
 //   --host nemo         NVIDIA NeMo Agent Toolkit — prints YAML
 //   --host registry     AWS Agent Registry — prints the CLI call
 //   --host generic      prints the mcpServers entry for any MCP client
@@ -26,6 +27,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+
+import { upsertBlockEntry, stdioServerBody } from '../src/yaml-block.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8')).version;
@@ -127,6 +130,59 @@ const HOSTS = {
 };
 
 const host = flag('host', 'openworker');
+
+// --- Hermes: YAML, edited line by line -------------------------------------
+//
+// Hermes keeps MCP servers in ~/.hermes/config.yaml alongside everything else
+// it is configured with. We have no YAML parser, so the edit is textual and
+// narrow (see src/yaml-block.mjs), the previous file is kept as .bak, and the
+// write is a rename.
+
+if (host === 'hermes') {
+  const hermesHome = process.env.HERMES_HOME
+    ? resolve(expand(process.env.HERMES_HOME))
+    : join(homedir(), '.hermes');
+  const target = join(hermesHome, 'config.yaml');
+  const body = stdioServerBody({
+    command: process.execPath,
+    args: [SERVER],
+    env,
+    // The read-only tools carry readOnlyHint, so Hermes' `untrusted` tier lets
+    // them through without a prompt while every write still stops for one.
+    extra: { trust: 'untrusted' },
+  });
+
+  if (has('print')) {
+    console.log(`# Hermes — merge into ${target}`);
+    console.log(upsertBlockEntry('', 'mcp_servers', SERVER_KEY, body).text);
+    process.exit(0);
+  }
+
+  const before = existsSync(target) ? readFileSync(target, 'utf-8') : '';
+  let result;
+  try {
+    result = upsertBlockEntry(before, 'mcp_servers', SERVER_KEY, body);
+  } catch (err) {
+    console.error(`could not edit ${target} safely: ${err.message}`);
+    console.error('Run again with --print and paste the block in by hand.');
+    process.exit(1);
+  }
+
+  mkdirSync(dirname(target), { recursive: true });
+  if (before) writeFileSync(`${target}.bak`, before, 'utf-8');
+  const tmp = `${target}.polyflow.tmp`;
+  writeFileSync(tmp, result.text, 'utf-8');
+  renameSync(tmp, target);
+
+  console.log(`${result.action} "${SERVER_KEY}" for Hermes`);
+  console.log(`  file:          ${target}${before ? ` (previous kept as ${target}.bak)` : ''}`);
+  console.log(`  agent area:    ${AGENT}`);
+  console.log(`  instance area: ${WORKSPACE}`);
+  console.log(`  workflows:     ${WORKFLOWS}`);
+  console.log(`  run store:     ${DB}`);
+  console.log('Hermes reloads config.yaml on save. polyflow is stdio, so there is no `hermes mcp login` step.');
+  process.exit(0);
+}
 
 // --- print-only hosts --------------------------------------------------------
 

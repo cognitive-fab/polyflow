@@ -10,6 +10,13 @@
 
 const str = (t, d) => ({ type: t, description: d });
 
+// MCP tool annotations. Hosts with a per-server trust tier (Hermes' `untrusted`
+// is one) prompt on every call that is not marked read-only, so a server that
+// declines to say which of its tools are reads makes itself unusable there.
+// Nothing here reaches the network: openWorldHint is false throughout.
+const READ = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+
 export function makeTools(pf) {
   const view = async (instanceId, sinceSeq) => {
     const v = sinceSeq === undefined
@@ -44,6 +51,7 @@ export function makeTools(pf) {
   return [
     {
       name: 'workflow_list',
+      annotations: READ,
       description:
         'List the workflows this agent knows how to run, with the guarantees each one was ' +
         'admitted under. A workflow that failed its emission check is listed as admitted:false ' +
@@ -53,6 +61,7 @@ export function makeTools(pf) {
     },
     {
       name: 'workflow_start',
+      annotations: { ...WRITE, idempotentHint: true },
       description:
         'Start a run of a workflow, or re-attach to the run this input already names. Idempotent: ' +
         'calling it again for the same run returns the run in progress (or its finished state) ' +
@@ -83,6 +92,7 @@ export function makeTools(pf) {
     },
     {
       name: 'workflow_report',
+      annotations: { ...WRITE, idempotentHint: false },
       description:
         'Report the result of a work order and receive the next one. Set ok:false for an ' +
         'infrastructure failure (it will be retried). Set ok:false with permanent:true for a ' +
@@ -110,6 +120,7 @@ export function makeTools(pf) {
     },
     {
       name: 'workflow_state',
+      annotations: READ,
       description: 'Current state and open work orders for a run, without changing anything.',
       inputSchema: {
         type: 'object',
@@ -120,6 +131,7 @@ export function makeTools(pf) {
     },
     {
       name: 'workflow_signal',
+      annotations: { ...WRITE, idempotentHint: false },
       description:
         'Send an event that did not come from a work order — an out-of-band cancel, or an ' +
         'approval that arrived through another surface. An action that does not apply in the ' +
@@ -140,6 +152,7 @@ export function makeTools(pf) {
     },
     {
       name: 'workflow_journal',
+      annotations: READ,
       description:
         'The full journal of a run: every step, accepted or rejected, with its reason. This is ' +
         'also a valid Polygraph trace corpus — the run can be audited against the machine later.',

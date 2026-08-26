@@ -30,8 +30,10 @@ export function serve({ name, version, tools, stdin = process.stdin, stdout = pr
         return reply(id, {});
       case 'tools/list':
         return reply(id, {
-          tools: tools.map(({ name: n, description, inputSchema }) =>
-            ({ name: n, description, inputSchema })),
+          tools: tools.map(({ name: n, description, inputSchema, annotations }) => ({
+            name: n, description, inputSchema,
+            ...(annotations ? { annotations } : {}),
+          })),
         });
       case 'tools/call': {
         const tool = byName.get(params?.name);

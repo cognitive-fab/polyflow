@@ -59,7 +59,13 @@ test('initialize, tools/list, tools/call over stdio', async (t) => {
   for (const tool of listed.result.tools) {
     assert.equal(tool.inputSchema.type, 'object', `${tool.name} must declare an object schema`);
     assert.ok(tool.description.length > 20);
+    // Hosts with a trust tier prompt on anything not marked read-only, so every
+    // tool has to say which it is — and none of them reach the network.
+    assert.equal(typeof tool.annotations?.readOnlyHint, 'boolean', `${tool.name} annotations`);
+    assert.equal(tool.annotations.openWorldHint, false, `${tool.name} openWorldHint`);
   }
+  const reads = listed.result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
+  assert.deepEqual(reads, ['workflow_journal', 'workflow_list', 'workflow_state']);
 
   const called = await rpc('tools/call', { name: 'workflow_list', arguments: {} });
   assert.ok(!called.result.isError);

@@ -66,7 +66,7 @@ reading the diff could easily miss it. The gate does not.
 
 ```bash
 npm install                    # pulls polygraph (polyrun) as a dependency
-npm test                       # 14 tests, no API key, deterministic
+npm test                       # 19 tests, no API key, deterministic
 node bin/polyflow-mcp.mjs      # MCP stdio server
 ```
 
@@ -157,6 +157,7 @@ The installer writes the right file for each host:
 ```bash
 node bin/polyflow-install.mjs --host kiro          # ~/.kiro/settings/mcp.json
 node bin/polyflow-install.mjs --host kiro --scope workspace   # ./.kiro/settings/mcp.json
+node bin/polyflow-install.mjs --host hermes        # ~/.hermes/config.yaml
 node bin/polyflow-install.mjs --host claude-code   # ./.mcp.json
 node bin/polyflow-install.mjs --host generic       # prints the entry, writes nothing
 ```
@@ -173,6 +174,19 @@ node bin/polyflow-install.mjs --host registry  # AWS CLI call to publish an Agen
   Crew's recurring unattended jobs are the same shape as OpenWorker's scheduled
   jobs, which is the case the results in
   [`FINDINGS-phase3.md`](FINDINGS-phase3.md) are about.
+- **Hermes Agent** keeps its MCP servers in `~/.hermes/config.yaml` under
+  `mcp_servers:`, alongside the rest of its configuration. There is no YAML
+  parser here and none is wanted — round-tripping a live config would lose
+  comments and formatting — so the edit is textual and narrow
+  (`src/yaml-block.mjs`, unit-tested in `test/yaml.test.mjs`): it replaces the
+  `polyflow` entry and nothing else, keeps the previous file as `.bak`, and
+  writes by rename. `HERMES_HOME` overrides the location. The entry sets
+  `trust: untrusted`, which is the right default for a server you did not
+  write: Hermes then prompts on every call that is not annotated read-only, and
+  polyflow's three read-only tools are annotated, so browsing a run costs
+  nothing while every write still stops for approval. polyflow is stdio, so
+  there is no `hermes mcp login` step. If you already have polyflow in
+  `~/.claude.json`, `hermes import-agent claude-code` migrates it.
 - **NVIDIA NeMo Agent Toolkit** connects through its `mcp_client` function
   group (needs `nvidia-nat-mcp`). The printed block declares the group and adds
   it to a workflow's `tool_names`. NeMo can also run as an MCP server itself, so
