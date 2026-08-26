@@ -162,6 +162,12 @@ node bin/polyflow-install.mjs --host registry  # AWS CLI call to publish an Agen
   can be synchronized from an HTTPS endpoint, which a stdio server has no way to
   offer, so the printed command creates a manual MCP record instead.
 
+The registry and polyflow both gate on approval, but not the same approval. A
+curator approves that a server may be **found**; polyflow's admission check
+decides that a workflow may **run**. Those are different questions, and an
+organization can use both: publish polyflow in the registry so teams can
+discover it, and let polyflow refuse the workflows that break their own rules.
+
 **Only the OpenWorker path has been exercised end to end** (see
 [`FINDINGS-phase2.md`](FINDINGS-phase2.md)). The others are built from each
 host's documented configuration format and have not been run.
