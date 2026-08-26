@@ -1,0 +1,532 @@
+<title>Many Hands, One Journal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root{
+    --paper:#EDF0F3; --card:#FFFFFF; --sunk:#E3E8ED;
+    --ink:#101820; --muted:#55636F; --faint:#7A8792;
+    --rule:#D3DAE1; --rule-soft:#E2E7EC;
+    --accent:#0E7490; --accent-2:#4338CA;
+    --high:#B02020; --med:#A15C07; --low:#166534; --chip:#DDE4EA;
+    --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+    --prose:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+    --col:70ch; --wide:1060px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0B1220; --card:#131C30; --sunk:#0E1526;
+      --ink:#E2E8F0; --muted:#97A5B6; --faint:#6C7C8E;
+      --rule:#1E293B; --rule-soft:#182234;
+      --accent:#22D3EE; --accent-2:#9AA4F5;
+      --high:#F87171; --med:#FBBF24; --low:#4ADE80; --chip:#1C2739;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0B1220; --card:#131C30; --sunk:#0E1526;
+    --ink:#E2E8F0; --muted:#97A5B6; --faint:#6C7C8E;
+    --rule:#1E293B; --rule-soft:#182234;
+    --accent:#22D3EE; --accent-2:#9AA4F5;
+    --high:#F87171; --med:#FBBF24; --low:#4ADE80; --chip:#1C2739;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--prose);font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  .page{max-width:var(--wide);margin:0 auto;padding:clamp(2rem,5vw,4.5rem) clamp(1.1rem,4vw,2.5rem) 6rem}
+  h1,h2,h3,h4{font-family:var(--display);font-weight:700;letter-spacing:-.018em;text-wrap:balance;margin:0}
+  h1{font-size:clamp(2.1rem,5.2vw,3.2rem);line-height:1.04}
+  h2{font-size:clamp(1.4rem,2.9vw,1.85rem);line-height:1.16}
+  h3{font-size:1.08rem;font-weight:600;letter-spacing:-.008em}
+  h4{font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  p{margin:0;max-width:var(--col)}
+  p+p{margin-top:1em}
+  .eyebrow{font-family:var(--mono);font-size:.7rem;font-weight:700;letter-spacing:.17em;text-transform:uppercase;color:var(--accent)}
+  header.mast{border-bottom:2px solid var(--ink);padding-bottom:1.7rem;margin-bottom:2.4rem}
+  .mast .lede{font-size:1.16rem;color:var(--muted);max-width:60ch;margin-top:1rem}
+  .method{display:flex;flex-wrap:wrap;gap:.4rem 1.6rem;margin-top:1.4rem;font-family:var(--mono);font-size:.72rem;color:var(--faint)}
+  .method b{color:var(--ink);font-weight:500}
+  section{padding-top:2.6rem;margin-top:2.6rem;border-top:1px solid var(--rule)}
+  section>.head{margin-bottom:1.3rem}
+  section>.head h2{margin-top:.35rem}
+  .note{color:var(--muted);margin-top:.8rem}
+  code{font-family:var(--mono);font-size:.86em;background:var(--sunk);padding:.08em .32em;border-radius:2px}
+  pre{font-family:var(--mono);font-size:.8rem;line-height:1.55;background:var(--sunk);border-left:2px solid var(--accent);padding:.8rem 1rem;margin:1rem 0;border-radius:0 3px 3px 0;overflow-x:auto;color:var(--ink)}
+  pre b{color:var(--accent-2);font-weight:600}
+  pre i{color:var(--faint);font-style:normal}
+
+  /* requirement blocks */
+  .req{display:grid;grid-template-columns:5.2rem minmax(0,1fr);gap:0 1.4rem;padding:1.1rem 0;border-top:1px solid var(--rule-soft)}
+  .req:first-of-type{border-top:1px solid var(--rule)}
+  .rid{font-family:var(--mono);font-size:.74rem;font-weight:700;color:var(--ink);background:var(--chip);border-radius:3px;padding:.18rem .45rem;align-self:start;justify-self:start}
+  .rbody{min-width:0}
+  .rbody h3{margin-bottom:.35rem}
+  .rbody p{color:var(--muted);font-size:.97rem}
+  .rbody .src{font-family:var(--mono);font-size:.7rem;color:var(--faint);margin-top:.45rem}
+  .rbody .src b{color:var(--muted);font-weight:500}
+
+  /* principle cards */
+  .grid{display:grid;gap:1rem;grid-template-columns:repeat(2,1fr);margin-top:1.4rem}
+  .card{border:1px solid var(--rule);border-radius:4px;background:var(--card);padding:1.2rem 1.35rem}
+  .card h3{margin-bottom:.5rem}
+  .card p{color:var(--muted);font-size:.95rem}
+  .card.no{border-left:3px solid var(--high)}
+  .card.yes{border-left:3px solid var(--low)}
+
+  /* tables */
+  .scrollx{overflow-x:auto;margin-top:1.2rem}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-family:var(--display);font-size:.9rem}
+  th{text-align:left;font-family:var(--mono);font-size:.67rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0 1rem .6rem 0;border-bottom:1px solid var(--rule);white-space:nowrap}
+  td{padding:.75rem 1rem .75rem 0;border-bottom:1px solid var(--rule-soft);color:var(--muted);vertical-align:top}
+  td:first-child,th:first-child{padding-left:0}
+  td b{color:var(--ink);font-weight:600}
+  td code{font-size:.8em}
+  tr:last-child td{border-bottom:none}
+  .tag{font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+  .t-new{color:var(--accent-2)} .t-ext{color:var(--med)} .t-same{color:var(--low)}
+
+  /* phases */
+  .phases{display:grid;gap:1rem;grid-template-columns:repeat(3,1fr);margin-top:1.4rem}
+  .phase{border:1px solid var(--rule);border-radius:4px;background:var(--card);padding:1.2rem 1.3rem;display:flex;flex-direction:column;gap:.8rem}
+  .ph-top{display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+  .ph-when{font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .phase ul{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.45rem}
+  .phase li{font-size:.92rem;color:var(--muted)}
+  .phase li b{color:var(--ink);font-weight:600}
+
+  /* diagram */
+  .fig{border:1px solid var(--rule);border-radius:4px;background:var(--card);padding:1.2rem;margin-top:1.4rem;overflow-x:auto}
+  .fig svg{display:block;max-width:100%;height:auto}
+  .fig .cap{font-family:var(--mono);font-size:.7rem;color:var(--faint);margin-top:.6rem}
+
+  footer{margin-top:3.2rem;padding-top:1.3rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:.7rem;color:var(--faint)}
+  a{color:var(--accent);text-underline-offset:2px}
+  a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+  @media (max-width:760px){
+    .grid,.phases{grid-template-columns:1fr}
+    .req{grid-template-columns:1fr;gap:.5rem}
+  }
+</style>
+
+<div class="page">
+
+  <header class="mast">
+    <div class="eyebrow">polycrew &middot; specification &middot; draft 2</div>
+    <h1>Many hands,<br>one journal</h1>
+    <p class="lede">polycrew is the multi-participant layer over polyflow. How several agents &mdash; and the people among them &mdash; work one run at the same time, how they wait for each other, and how what they did becomes a record nobody has to take on faith. Every coordination is a journaled step of a machine that was checked before it loaded. Agents never talk to each other; they talk to the run.</p>
+    <div class="method">
+      <span>grounded in <b>polyflow</b> <code>src/</code> and <b>polyrun</b> FR-1&ndash;FR-8</span>
+      <span>child machines are <b>shipped</b> (<code>kernel.mjs:476</code>, <code>test/m2.test.mjs</code>)</span>
+      <span>26 Aug 2026</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">0 &middot; The problem</div>
+      <h2>Today one agent holds one run. Nothing stops a second agent &mdash; and nothing helps it.</h2>
+    </div>
+    <p>polyflow already returns <code>next</code> as an array: a step may emit several work orders at once, and a single agent works through them. Two agents attached to the same run would both see the same open orders, both run the same tool, and both report &mdash; the second report lands as <code>order-expired</code> or a stale-completion reject, which is safe, and wasteful. There is no way to say <em>this order is mine</em>, no way to say <em>only a reviewer may take this one</em>, no record of <em>who</em> did a step, and no way for a run to wait until three sub-tasks are done before it continues.</p>
+    <p>There is also a structural constraint the current build hides. Each host spawns <code>bin/polyflow-mcp.mjs</code> over stdio, so each agent session gets its own process, and the broker&rsquo;s order map is in that process&rsquo;s memory (<code>broker.mjs:19</code>). Two agents on one SQLite file are two brokers that cannot see each other&rsquo;s parked orders. Multi-agent starts with one broker per instance area.</p>
+    <p>The good news is that almost everything needed already exists one layer down. polyrun has atomic dispatch with a per-instance row lock, deduped completions, leases on effect intents, timers, and &mdash; since M2 &mdash; child machines with completion actions and a product checker. This spec adds the thin layer that lets agents use those primitives, and the vocabulary that lets a workflow author say which agent may do what.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">0b &middot; Two packages, one gate</div>
+      <h2>Why polycrew is separate, and exactly where the seam falls</h2>
+    </div>
+    <p>Almost everything below scales down to one agent for free: roles are optional and a role-less order goes to the starting actor, <code>attach</code> and <code>next</code> are additive, journal columns are constant at n=1. One thing does not, and it is the reason for two packages.</p>
+    <p>polyflow today runs as a stdio process the host spawns per session, with the broker&rsquo;s order map in that process&rsquo;s memory (<code>broker.mjs:19</code>). No daemon, no port, no lifecycle &mdash; which is what makes it installable in five hosts. Many actors need <b>one broker per instance area</b>, and that is a different deployment shape. The fork is not one agent versus many; it is <em>in-process broker, stdio, SQLite</em> versus <em>shared broker, service, Postgres</em>.</p>
+    <p>So: <b>polyflow stays the single-participant engine and the library.</b> polycrew depends on it, and must never fork the admission gate &mdash; it imports <code>Library.certify</code> and <em>adds</em> the product and structural checks. Two gates would mean the guarantee stops being one sentence.</p>
+    <div class="scrollx">
+      <table>
+        <thead><tr><th>Lands in</th><th>What</th></tr></thead>
+        <tbody>
+          <tr><td><b>polyflow</b></td><td>Fan-out and join (MA-10, MA-13) &mdash; a single agent driving a parent with children is an ordinary single-agent workflow; this is workflow <em>structure</em>, not coordination. The waiting-state timer check (MA-11). Journal <code>actor</code>, <code>order_id</code>, <code>provenance</code> columns (MA-14). <code>workflow_progress</code> and <code>workflow_report_run</code> (MA-15, MA-16). Host events (MA-17).</td></tr>
+          <tr><td><b>polycrew</b></td><td>The shared broker. Actor identity as a required argument, roles and role constraints, <code>attach</code>, <code>next</code>-by-role, claim arbitration and leases, cross-actor cancellation, human participants (MA-1 to MA-9, MA-12, MA-18).</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><b>Establish before building.</b> The daemon may not be necessary. MA-6 already puts the claim on the outbox row, and an order is derivable from that row &mdash; so <code>workflow_next</code> can be a store query rather than a memory lookup, and a report can dispatch the completion directly (<code>{intentId}:done</code>) from any process holding the store, with the <code>_journaled(row, &rsquo;:done&rsquo;)</code> fence in <code>workers.mjs</code> converging the parked handler. That route needs Postgres, since polyrun is explicit that SQLite is one writer per file. A day spent settling this decides whether polycrew is a service or a store profile plus a tool surface.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">1 &middot; Principles</div>
+      <h2>Six rules everything below follows from</h2>
+    </div>
+    <div class="grid">
+      <div class="card yes"><h3>The run is the only shared state</h3><p>Agents synchronize through actions on a machine and nothing else. No blackboard, no scratchpad, no message bus. If two agents need to agree on something, that something is a state key, and the agreement is a journaled step.</p></div>
+      <div class="card yes"><h3>A join is verified logic, not runtime logic</h3><p>&ldquo;Wait until all three are done,&rdquo; &ldquo;two distinct reviewers must approve,&rdquo; &ldquo;give up after an hour&rdquo; are acceptors and timers in a contract that the admission gate explored. Nothing in polyflow&rsquo;s code decides when a barrier opens.</p></div>
+      <div class="card yes"><h3>Identity is derived, never chosen</h3><p>Runs already derive their key from validated input. Children derive theirs the same way from the data that spawned them. An agent cannot start a second copy of a sub-task by inventing a name (FINDINGS-phase3 &sect;6, extended).</p></div>
+      <div class="card yes"><h3>Every step names its actor</h3><p>Who claimed, who reported, who signalled &mdash; on the journal row. The journal already answers <em>what happened</em>; it now answers <em>who did it</em>, which is what a report is.</p></div>
+      <div class="card no"><h3>polyflow still calls no tool</h3><p>The inversion holds with many agents exactly as with one: each agent runs its tools under its own credentials and gates. polyflow hands out orders and records results. It never acquires a connector because there are more agents.</p></div>
+      <div class="card no"><h3>No model on the coordination path</h3><p>Which agent gets an order, whether a join has opened, whether a report is a duplicate &mdash; all deterministic. A model decides <em>how</em> to fulfil an order; never whether the run may proceed.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">2 &middot; Vocabulary</div>
+      <h2>Six words, three of them new</h2>
+    </div>
+    <div class="scrollx">
+      <table>
+        <thead><tr><th>Term</th><th></th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><b>actor</b></td><td class="tag t-new">new</td><td>One running participant, identified as <code>{agent area}/{actor id}</code>. The agent area is the <em>class</em> (<code>areas.mjs</code>); the actor id is the <em>running copy</em> and nothing else &mdash; one CLI session, one worker, one person. Not a persona: a persona is a class. Supplied on every write call.</td></tr>
+          <tr><td><b>human actor</b></td><td class="tag t-new">new</td><td>An actor whose agent area names a human channel: <code>human/jjdub</code>. It participates exactly as an agent actor does &mdash; claims orders, reports, is journaled &mdash; but its writes arrive from the host&rsquo;s answer channel rather than from a model, and its orders obey different lease physics (MA-18).</td></tr>
+          <tr><td><b>role</b></td><td class="tag t-new">new</td><td>A name a workflow gives to a kind of participant (<code>gatherer</code>, <code>reviewer</code>). Work orders are addressed to roles, never to an actor. A role may require an actor <code>kind</code> or agent area. An actor declares which roles it can play when it attaches.</td></tr>
+          <tr><td><b>work order</b></td><td class="tag t-ext">extended</td><td>As today (<code>broker.mjs</code>), plus <code>role</code>, <code>claimed_by</code>, <code>claimed_until</code>. Still one polyrun effect intent; the claim is a lease on that intent, so it survives a crash for free.</td></tr>
+          <tr><td><b>child run</b></td><td class="tag t-same">shipped</td><td>A polyrun child machine (FR-8) spawned by the parent&rsquo;s effect mapper, with its own contract, journal and orders. Its terminal state dispatches a completion action into the parent. This is fan-out.</td></tr>
+          <tr><td><b>join</b></td><td class="tag t-same">shipped</td><td>Not a primitive. A state in the parent whose acceptors count completions and move on when the workflow&rsquo;s rule says so. Checked by <code>polyrun check-product</code> with authored cross-machine invariants.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><b>Three tiers, not two.</b> <code>POLYFLOW_AGENT</code> is the class, <code>POLYFLOW_INSTANCE</code> is the <em>workspace</em> that scopes the store, and the actor is a third thing: the running copy inside that workspace. Several CLI sessions in one project are one agent area, one instance area, and N actors. The names collide easily; an actor id is never a workspace and never a class.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">3 &middot; Shape</div>
+      <h2>A parent fans out, children are claimed by role, completions join</h2>
+    </div>
+    <div class="fig">
+      <svg viewBox="0 0 900 360" width="900" height="360" role="img" aria-label="A parent run spawns three child runs; actors in the gatherer role claim child orders; each child's terminal state dispatches a completion action into the parent, whose join state waits for all three before emitting the review order, which two reviewer actors must approve.">
+        <defs>
+          <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 Z" fill="#7A8792"/></marker>
+          <marker id="b" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 Z" fill="#0E7490"/></marker>
+        </defs>
+        <style>
+          .bx{fill:none;stroke:#7A8792;stroke-width:1.4}
+          .pa{fill:none;stroke:#0E7490;stroke-width:1.8}
+          .t{font-family:Archivo,Arial,sans-serif;font-size:13px;fill:#101820}
+          .m{font-family:'JetBrains Mono',Consolas,monospace;font-size:10.5px;fill:#55636F}
+          .k{font-family:'JetBrains Mono',Consolas,monospace;font-size:9.5px;letter-spacing:1.2px;fill:#0E7490;font-weight:700}
+          @media (prefers-color-scheme: dark){
+            .t{fill:#E2E8F0} .m{fill:#97A5B6} .bx{stroke:#6C7C8E} .pa{stroke:#22D3EE} .k{fill:#22D3EE}
+          }
+        </style>
+        <!-- parent -->
+        <rect x="20" y="30" width="200" height="300" rx="6" class="pa"/>
+        <text x="34" y="52" class="k">PARENT RUN</text>
+        <text x="34" y="74" class="t">customer-brief-crew</text>
+        <text x="34" y="92" class="m">key = {date}</text>
+        <rect x="34" y="112" width="172" height="34" rx="4" class="bx"/><text x="44" y="134" class="t">gathering → spawn ×3</text>
+        <rect x="34" y="158" width="172" height="34" rx="4" class="bx"/><text x="44" y="180" class="t">joining: done 0/3</text>
+        <rect x="34" y="204" width="172" height="34" rx="4" class="bx"/><text x="44" y="226" class="t">review: approvals 0/2</text>
+        <rect x="34" y="250" width="172" height="34" rx="4" class="bx"/><text x="44" y="272" class="t">posting → posted</text>
+        <!-- children -->
+        <g>
+          <rect x="330" y="40" width="190" height="60" rx="6" class="bx"/><text x="342" y="60" class="k">CHILD</text><text x="342" y="80" class="t">triage-ticket · {ticketId}=41</text>
+          <rect x="330" y="120" width="190" height="60" rx="6" class="bx"/><text x="342" y="140" class="k">CHILD</text><text x="342" y="160" class="t">triage-ticket · {ticketId}=42</text>
+          <rect x="330" y="200" width="190" height="60" rx="6" class="bx"/><text x="342" y="220" class="k">CHILD</text><text x="342" y="240" class="t">triage-ticket · {ticketId}=47</text>
+        </g>
+        <path d="M206,129 C270,129 270,70 330,70" class="pa" marker-end="url(#b)"/>
+        <path d="M206,129 C270,129 270,150 330,150" class="pa" marker-end="url(#b)"/>
+        <path d="M206,129 C270,129 270,230 330,230" class="pa" marker-end="url(#b)"/>
+        <text x="228" y="118" class="m">spawnChild</text>
+        <!-- actors -->
+        <g>
+          <rect x="620" y="48" width="130" height="44" rx="22" class="bx"/><text x="636" y="66" class="k">GATHERER</text><text x="636" y="82" class="m">actor cowork/a1</text>
+          <rect x="620" y="128" width="130" height="44" rx="22" class="bx"/><text x="636" y="146" class="k">GATHERER</text><text x="636" y="162" class="m">actor cowork/a2</text>
+          <rect x="620" y="250" width="130" height="44" rx="22" class="bx"/><text x="636" y="268" class="k">REVIEWER</text><text x="636" y="284" class="m">actor cowork/r1</text>
+          <rect x="760" y="250" width="130" height="44" rx="22" class="bx"/><text x="776" y="268" class="k">REVIEWER</text><text x="776" y="284" class="m">actor cowork/r2</text>
+        </g>
+        <path d="M520,70 L620,70" class="bx" marker-end="url(#a)"/><text x="540" y="62" class="m">claim · report</text>
+        <path d="M520,150 L620,150" class="bx" marker-end="url(#a)"/>
+        <path d="M520,230 C560,230 580,160 620,158" class="bx" marker-end="url(#a)"/>
+        <!-- completions back -->
+        <path d="M330,90 C260,90 260,176 206,176" class="pa" stroke-dasharray="4 3" marker-end="url(#b)"/>
+        <path d="M330,170 C260,170 260,176 206,176" class="pa" stroke-dasharray="4 3" marker-end="url(#b)"/>
+        <path d="M330,250 C260,250 260,176 206,176" class="pa" stroke-dasharray="4 3" marker-end="url(#b)"/>
+        <text x="228" y="196" class="m">TRIAGED {childKey}</text>
+        <!-- review -->
+        <path d="M206,268 C400,268 500,268 620,268" class="bx" marker-end="url(#a)"/>
+        <text x="380" y="300" class="m">request_approval · role reviewer · 2 distinct actors</text>
+        <text x="20" y="352" class="m">solid: parent → child (spawn) · dashed: child terminal → parent (completion action, deduped by child id) · thin: actor ↔ order (claim / report)</text>
+      </svg>
+      <div class="cap">Fig 1 — one run, three children, four actors, two roles. Every arrow is a journaled dispatch.</div>
+    </div>
+    <p class="note">Two things to see in the figure. The join state and the two-reviewer rule live in the parent&rsquo;s contract; they are explored by the admission gate and the product checker before the workflow can load. And actors touch only orders &mdash; a gatherer never sees the parent, a reviewer never sees a child.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">4 &middot; Requirements &mdash; identity and addressing</div>
+      <h2>Who is asking, and which orders they may take</h2>
+    </div>
+
+    <div class="req"><span class="rid">MA-1</span><div class="rbody">
+      <h3>Every write call carries an actor</h3>
+      <p><code>workflow_start</code>, <code>workflow_claim</code>, <code>workflow_report</code> and <code>workflow_signal</code> take <code>actor: string</code>. The daemon qualifies it as <code>{agent}/{actor}</code> using the agent area it was started with. A call without an actor is refused with an instruction, the same way a bad key field is today (<code>library.mjs deriveKey</code>): the model is told what to supply, not routed around.</p>
+      <div class="src"><b>where</b> tools.mjs input schemas · daemon.mjs begin/report/dispatch</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-2</span><div class="rbody">
+      <h3>A workflow declares roles, and addresses each effect kind to one</h3>
+      <p>In <code>polyflow.workflow.json</code>, a <code>roles</code> map and a <code>role</code> on each entry of <code>tools</code>. An effect kind with no role is addressed to the run&rsquo;s starting actor (today&rsquo;s behaviour, so existing workflows load unchanged). A role may carry <code>max_concurrent</code>, the number of its orders that may be claimed at once; a <code>kind</code> (<code>agent</code> or <code>human</code>) or an <code>agent_area</code>, which restrict who may claim it; and a <code>lease</code> override. A role addressed to a pool that cannot satisfy its constraint is refused at admission, not at run time.</p>
+<pre>"roles": {
+  "gatherer": { "description": "reads tickets, drafts triage",  "max_concurrent": 3 },
+  "reviewer": { "description": "a person", "kind": "human", "lease": "8h" }
+},
+"tools": {
+  "fetch_tickets":    { "tool": "github_search_issues", "role": "gatherer", "why": "…" },
+  "request_approval": { "tool": "ask_user",             "role": "reviewer", "why": "…" }
+}</pre>
+      <div class="src"><b>where</b> library.mjs _read · the admission gate refuses a tools entry whose role is undeclared</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-3</span><div class="rbody">
+      <h3>An actor attaches with the roles it can play</h3>
+      <p>New tool <code>workflow_attach { actor, roles[] }</code>. It is idempotent and returns the workflows in the library whose roles intersect the actor&rsquo;s. Attaching is not joining a run &mdash; it is the actor saying what kind of order it will accept. OpenWorker&rsquo;s <code>personas/</code> and <code>teams/</code> are where an integrator would source the role list; Kiro Crew members map the same way.</p>
+      <div class="src"><b>where</b> tools.mjs · a small in-store actor registry keyed by instance area, so a restart forgets nothing</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-4</span><div class="rbody">
+      <h3>Orders are offered by role, not by run</h3>
+      <p>New tool <code>workflow_next { actor, instance? }</code> returns open, unclaimed orders whose role the actor may play &mdash; across every active run in the instance area, or one run if named, and including the children of a parent. This is what lets a pool of gatherers drain a fan-out without anyone assigning work: each asks for the next order it is allowed to do. <code>workflow_state</code> keeps returning the whole run, with each order&rsquo;s role and claim shown.</p>
+      <div class="src"><b>where</b> broker.mjs open() gains a role filter · RUN_VIEW work orders gain role, claimed_by, claimed_until</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-5</span><div class="rbody">
+      <h3>Children derive their keys from the data that spawned them</h3>
+      <p>The descriptor&rsquo;s <code>children</code> map names each child workflow and its <code>key</code> policy, resolved from the spawn payload exactly as a run key is resolved from start input. The child instance id is polyrun&rsquo;s <code>hash(parent, childKey, seq)</code> (<code>kernel.mjs:498</code>). A duplicate spawn key in one step is already a poison (<code>kernel.mjs:493</code>); a duplicate across steps re-attaches to the existing child. No agent ever names a child.</p>
+<pre>"children": {
+  "triage-ticket": { "workflow": "triage-ticket", "key": { "template": "{ticketId}",
+                     "fields": { "ticketId": { "pattern": "^\\d+$" } } } }
+}</pre>
+      <div class="src"><b>where</b> library.mjs parseKeyPolicy reused · effects.cjs emits <code>{kind:'spawnChild', machineId, childKey, initData, onComplete}</code> as polyrun FR-8.1 already defines</div>
+    </div></div>
+  </section>
+
+    <div class="req"><span class="rid">MA-18</span><div class="rbody">
+      <h3>A person is an actor, and how their answer arrived is recorded</h3>
+      <p>A human participates as <code>human/{id}</code>: claims an order addressed to a human role, reports, is journaled. polycrew authenticates nobody &mdash; the host already knows who resolved an Inbox item, and authentication belongs where the identity lives. What polycrew records is <em>which channel the write came through</em>.</p>
+      <p>Two provenances, and they are not the same claim:</p>
+      <ul>
+        <li><b>asserted</b> &mdash; an agent claimed the order, asked a person through its own tool, and reported the answer. The record is the agent&rsquo;s word for it.</li>
+        <li><b>verified</b> &mdash; the write arrived from the host&rsquo;s answer channel with the person&rsquo;s identity attached, not through a model.</li>
+      </ul>
+      <p>Both are legitimate; only one is evidence. A workflow that cares says so in its invariants (MA-13), and the weaker path stays visible instead of being silently equivalent &mdash; the same discipline the emission checker applies everywhere else.</p>
+      <p>The integration is small and uses what hosts already have. On OpenWorker, the path that resolves an Inbox item dispatches into the run rather than returning to the agent: <code>workflow_signal { instance, action, data, actor: "human/jjdub" }</code>, marked <code>verified</code> because it came from that channel. An agent reporting <code>ask_user</code>&rsquo;s result is marked <code>asserted</code>. Nothing else changes.</p>
+      <div class="src"><b>where</b> daemon.mjs dispatch gains provenance beside actor &middot; a host adapter, not a polycrew feature</div>
+    </div></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">5 &middot; Requirements &mdash; claiming and leases</div>
+      <h2>An order belongs to one actor at a time, and only until it stops working</h2>
+    </div>
+
+    <div class="req"><span class="rid">MA-6</span><div class="rbody">
+      <h3>Claim before you run</h3>
+      <p>New tool <code>workflow_claim { order_id, actor }</code>. Success returns the order with <code>claimed_until</code>. A second claim on a claimed order returns <code>claimed-by-other</code> with the holder and expiry &mdash; a result, not an error, and the model is told to call <code>workflow_next</code> instead. A role&rsquo;s <code>max_concurrent</code> is enforced here.</p>
+      <p>The claim is stored on the polyrun outbox row: <code>claimed_until</code> already exists; this adds <code>claimed_by</code>. Nothing is in process memory that a crash would lose.</p>
+      <div class="src"><b>where</b> broker.mjs · store.mjs additive column (the migration path at store.mjs:105 exists for exactly this)</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-7</span><div class="rbody">
+      <h3>A claim is a lease, extended by heartbeat, lost by silence</h3>
+      <p>The broker already extends the intent lease on a timer while an order is parked (<code>broker.mjs:36</code>). Under claims, extension happens only while the claiming actor is alive: a call from that actor on that order &mdash; <code>workflow_state</code>, a progress note, the report itself &mdash; renews it. A role may override <code>lease</code>, and a role of <code>kind: "human"</code> is exempt: a person is silent for hours by definition, so a human-held order is bounded by the workflow&rsquo;s timer (MA-11) and never re-offered on lease expiry. Re-offering a review because the first reviewer went to lunch is not a recovery, it is a second reviewer. For agent roles, an actor that goes silent past <code>claimed_until</code> loses the order; it returns to unclaimed and is offered again with <code>attempt+1</code>, exactly the re-offer polyrun does today after a worker crash. Default lease <code>leaseMs</code> (5 min) stays; a role may override it.</p>
+      <div class="src"><b>where</b> daemon.mjs leaseMs · broker heartbeat becomes actor-driven</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-8</span><div class="rbody">
+      <h3>Only the claimant reports, and a late report is a result</h3>
+      <p><code>workflow_report</code> from an actor other than the claim holder is refused with <code>not-your-order</code>. A report from the holder after its lease expired and the order was re-claimed by someone else is <code>order-expired</code> &mdash; the existing reply (<code>broker.mjs:73</code>). If nobody re-claimed it yet, the late report is accepted and the claim closes: the work was done, and the completion action&rsquo;s dedupe (<code>{intentId}:done</code>) guarantees it cannot be applied twice even if the re-offered copy is later reported too.</p>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-9</span><div class="rbody">
+      <h3>Progress is a journaled action, not a chat message</h3>
+      <p>A long order may report progress: <code>workflow_report { order_id, actor, progress: {…} }</code> without <code>ok</code>. It renews the lease and dispatches the manifest&rsquo;s optional <code>onProgress</code> action into the machine with the payload as data. A workflow that declares no <code>onProgress</code> gets the lease renewal and a journal row of kind <code>progress</code>, and nothing else. Progress is therefore visible in <code>workflow_state</code> to every other actor, and in the journal forever.</p>
+      <div class="src"><b>where</b> effects.manifest.json per-kind <code>onProgress</code> · a progress row carries no state change, like a rejected step (FR-2.5)</div>
+    </div></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">6 &middot; Requirements &mdash; synchronization</div>
+      <h2>Waiting is a state the checker has seen</h2>
+    </div>
+    <p>There is no barrier API. A workflow that needs several things done before it continues models a state that waits, acceptors that count, and a timer that bounds the wait. polyflow adds nothing here; it inherits polyrun. The requirements are about what the admission gate must establish before such a workflow may load.</p>
+
+    <div class="req"><span class="rid">MA-10</span><div class="rbody">
+      <h3>Fan-out is <code>spawnChild</code>; join is the parent counting completions</h3>
+      <p>The parent&rsquo;s mapper emits one <code>spawnChild</code> per unit of work when it enters its fan-out state. Each child&rsquo;s terminal state dispatches the parent&rsquo;s <code>onComplete</code> action with <code>{childKey, childState}</code> (<code>kernel.mjs:364</code>), deduped by child id. The parent&rsquo;s acceptor for that action increments a counter, records the outcome, and moves to the next state when its rule is met &mdash; all of them, a quorum, the first success. The counter and the rule are contract state, so they are in the journal and in the checker&rsquo;s reach.</p>
+<pre><i>// parent acceptor — the join, as verified logic</i>
+TRIAGED: (model) => (p, { reject, next }) => {
+  if (model.briefState !== 'joining') return reject('stale-completion');
+  if (model.triaged.includes(p.childKey)) return reject('duplicate-completion');
+  next.triaged = [...model.triaged, p.childKey];
+  next.briefState = next.triaged.length === model.spawned ? 'drafting' : 'joining';
+}</pre>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-11</span><div class="rbody">
+      <h3>Every join has a deadline, and the deadline is a timer</h3>
+      <p>A state that waits on completions must also arm a <code>timer</code> intent on entry, whose action moves the run out of the wait &mdash; to a degraded path, to a review, to failure. The admission gate refuses a workflow with a waiting state and no timer out of it. This is the polyrun doctrine (FR-4.2, staleness handled by the machine) applied as a rule: a run must not be able to wait forever on an agent that never comes back.</p>
+      <div class="src"><b>where</b> library.mjs certify() · a new structural check over the mapper: each state that is entered by a completion-awaiting transition emits a timer</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-12</span><div class="rbody">
+      <h3>Cancellation flows down, never sideways</h3>
+      <p>A parent that reaches a terminal state dispatches <code>onParentTerminal</code> into each non-terminal child (FR-8.4). A child that rejects it is journaled and surfaced, not forced. An actor holding a claim on an order of a cancelled child sees the order vanish from <code>workflow_next</code> and gets <code>order-cancelled</code> if it reports. No actor may cancel another actor&rsquo;s order; it may only signal the machine, which decides.</p>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-13</span><div class="rbody">
+      <h3>The rules that span parent and children are checked before load</h3>
+      <p>A crew workflow ships <code>invariants.compose.mjs</code> alongside <code>effect-invariants.mjs</code>. The admission gate runs <code>polyrun check-product</code> over the parent &times; child product with those invariants; a violation or a <code>BOUNDED</code> verdict refuses the workflow, as the emission check does today (<code>library.mjs certify</code>). The sentences this makes approvable are the multi-agent ones:</p>
+<pre>{ name: 'no-post-before-every-child-terminal',
+  pred: (joint) => joint.parent.briefState !== 'posting' ||
+                   joint.children.every((c) => c.terminal) },
+{ name: 'two-distinct-verified-reviewers',
+  pred: (joint) => joint.parent.briefState !== 'posting' ||
+                   new Set(joint.parent.approvals
+                     .filter((a) => a.provenance === 'verified')
+                     .map((a) => a.actor)).size >= 2 },
+{ name: 'no-orphan-child-when-parent-terminal',
+  pred: (joint) => !joint.parent.terminal || joint.children.every((c) => c.terminal) }</pre>
+      <p>The second one is the DAAO two-person rule, and it is only expressible because approvals carry the actor <em>and how it was established</em> (MA-18). Counting actors alone would not do it: if an agent claims the approval order and reports what a person told it, the actor on the row is the agent, so two approvals routed through two sessions satisfy the rule even when the same person answered both. That is the point of putting identity on the wire &mdash; and of recording how it got there.</p>
+      <div class="src"><b>limits, stated</b> check-product handles one level of children; grandchildren and joint mid-flight seeding are open (composition-plan.md). A crew workflow that spawns grandchildren is refused at load until that closes.</div>
+    </div></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">7 &middot; Requirements &mdash; reporting</div>
+      <h2>The journal already knows what happened. Now it knows who, and it can say so.</h2>
+    </div>
+
+    <div class="req"><span class="rid">MA-14</span><div class="rbody">
+      <h3>Journal rows carry actor and order</h3>
+      <p>Three additive columns on <code>pr_journal</code>: <code>actor</code>, <code>order_id</code> and <code>provenance</code> (MA-18). A completion dispatched by the worker after a report carries the reporting actor; a signal carries its caller; a timer carries <code>system/timer</code>; a child completion carries <code>system/child:{childKey}</code>. <code>workflow_journal</code> returns both fields, and accepts <code>scope: "tree"</code> to interleave the children&rsquo;s journals by wall-clock time.</p>
+      <div class="src"><b>where</b> store.mjs insertJournal · kernel dispatch signature gains an <code>actor</code> in the same way it carries <code>actionId</code></div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-15</span><div class="rbody">
+      <h3>A progress view over the tree, computed from snapshots</h3>
+      <p>New tool <code>workflow_progress { instance }</code> returns, for a parent: its state, each child&rsquo;s state and whether it is terminal, every open order with its role and claimant, the orders whose lease is past due, the timers armed and when they fire, and the count of refused steps since the last accepted one. It is a read over snapshots and outbox rows (FR-5.2); it never touches a module. This is the coordinator&rsquo;s view, and the human&rsquo;s.</p>
+<pre>{ "instance": "cowork|acme|customer-brief-crew|2026-08-26",
+  "state": { "briefState": "joining", "spawned": 3, "triaged": ["41","47"] },
+  "children": [ { "key":"41","state":"triaged","terminal":true },
+                { "key":"42","state":"reading","terminal":false,
+                  "orders":[{ "order_id":"…","role":"gatherer","claimed_by":"cowork/a2","claimed_until":"…" }] },
+                { "key":"47","state":"triaged","terminal":true } ],
+  "waiting_on": ["42"], "timers": [{ "key":"joinWindow","fires_in_ms":1_140_000 }],
+  "overdue": [], "refused_since_last_accept": 0 }</pre>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-16</span><div class="rbody">
+      <h3>A run report is rendered from the journal, by polyflow, with no model</h3>
+      <p>New tool <code>workflow_report_run { instance, format: "json" | "md" }</code>, available once the run is terminal. It is a pure function of the journal tree: the timeline of accepted steps with actor and order; per-actor tallies (orders claimed, completed, lost to lease expiry, refused reports); every rejected step with its reason; timers that fired and what they did; children spawned, completed, cancelled. It is stamped with the workflow&rsquo;s certificate hash and the run&rsquo;s instance id, so the same run renders the same report on any machine &mdash; the polyviz discipline applied to prose.</p>
+      <p>A workflow may additionally emit a <code>narrate</code> effect on reaching terminal &mdash; a work order for a <code>reporter</code> role whose payload is the rendered report. An agent writes the human summary; that summary is reported back and journaled like any other result. The narrative is an agent&rsquo;s work product; the record it summarizes is not.</p>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-17</span><div class="rbody">
+      <h3>Hosts are woken by events, not polled by agents</h3>
+      <p>Journal fan-out (polyrun FR-7.5, M2) publishes committed rows. polyflow subscribes and emits host events: <code>order-available:{role}</code>, <code>join-opened:{instance}</code>, <code>run-terminal:{instance}</code>, <code>lease-lost:{actor}</code>. On OpenWorker these are <code>selfwake.wake_on_event</code> keys (FINDINGS-phase0: integrate with selfwake, not around it); on Kiro Crew and NeMo they are whatever the host offers, and where the host offers nothing, <code>workflow_next</code> remains the fallback. An idle gatherer wakes when a child needs it; a coordinator session wakes when the join opens.</p>
+    </div></div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">8 &middot; The surface</div>
+      <h2>Nine tools, three of them new</h2>
+    </div>
+    <div class="scrollx">
+      <table>
+        <thead><tr><th>Tool</th><th></th><th>Change</th></tr></thead>
+        <tbody>
+          <tr><td><code>workflow_list</code></td><td class="tag t-ext">extended</td><td>Each workflow lists its <code>roles</code>, its <code>children</code>, and the cross-machine guarantees it was admitted under, beside the emission ones.</td></tr>
+          <tr><td><code>workflow_attach</code></td><td class="tag t-new">new</td><td><code>{actor, roles[]}</code> &rarr; the workflows this actor can take orders from. Idempotent.</td></tr>
+          <tr><td><code>workflow_start</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>. Still derives the key; still re-attaches. The starting actor is the default addressee for role-less orders.</td></tr>
+          <tr><td><code>workflow_next</code></td><td class="tag t-new">new</td><td><code>{actor, instance?}</code> &rarr; unclaimed orders this actor may take, across the area or one run, including children.</td></tr>
+          <tr><td><code>workflow_claim</code></td><td class="tag t-new">new</td><td><code>{order_id, actor}</code> &rarr; the order with a lease, or <code>claimed-by-other</code>.</td></tr>
+          <tr><td><code>workflow_report</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>; must match the claim. Accepts <code>progress</code> without <code>ok</code>.</td></tr>
+          <tr><td><code>workflow_state</code></td><td class="tag t-ext">extended</td><td>Orders show <code>role</code>, <code>claimed_by</code>, <code>claimed_until</code>.</td></tr>
+          <tr><td><code>workflow_progress</code></td><td class="tag t-new">new</td><td><code>{instance}</code> &rarr; the tree view (MA-15).</td></tr>
+          <tr><td><code>workflow_signal</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>, journaled on the row with its <code>provenance</code>. Also the seam a host uses to write a person&rsquo;s answer straight into the run (MA-18).</td></tr>
+          <tr><td><code>workflow_journal</code></td><td class="tag t-ext">extended</td><td>Rows carry <code>actor</code>, <code>order_id</code>, <code>provenance</code>; <code>scope: "tree"</code>.</td></tr>
+          <tr><td><code>workflow_report_run</code></td><td class="tag t-new">new</td><td><code>{instance, format}</code> &rarr; the deterministic run report (MA-16), terminal runs only.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Ten tools, not nine — <code>workflow_report_run</code> is the tenth. Read-only annotations stay as they are (<code>tools.mjs:17</code>); the four new write tools are <code>WRITE</code> with <code>idempotentHint</code> on attach and claim.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">9 &middot; The example</div>
+      <h2><code>customer-brief-crew</code> &mdash; the demo, with hands</h2>
+    </div>
+    <p>The existing <code>customer-brief</code> becomes a parent that fans out one <code>triage-ticket</code> child per ticket to a pool of gatherers, joins when every child is terminal or the join window closes, drafts, then asks for approval from two <em>distinct people</em> &mdash; a <code>reviewer</code> role of <code>kind: "human"</code>, answered through the host&rsquo;s channel and therefore <code>verified</code> &mdash; before posting. Its guarantees, as the gate would list them:</p>
+<pre>[polyflow] admitted: customer-brief-crew
+[polyflow]   emission   at-most-one-post-per-path · no-post-without-prior-approval · exactly-one-fetch-when-started
+[polyflow]   product    no-post-before-every-child-terminal · two-distinct-verified-reviewers · no-orphan-child-when-parent-terminal
+[polyflow]   structure  every waiting state arms a timer · every tools entry names a declared role
+[polyflow]              every role constraint is satisfiable by an attachable actor
+[polyflow] REFUSED: crew-no-deadline
+[polyflow]   joining has no timer out — a run could wait forever on a gatherer that never returns</pre>
+    <p>The measurement that would go with it is the phase-3 one, repeated with a pool: three gatherers on a four-ticket day, one of them killed mid-order. The claims are what should carry the result &mdash; the killed gatherer&rsquo;s order re-offered after its lease, taken by another, one triage per ticket in the journal, and the report naming who did which.</p>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">10 &middot; What it will not do</div>
+      <h2>Named so nobody builds it by accident</h2>
+    </div>
+    <div class="grid">
+      <div class="card no"><h3>Agents do not message each other</h3><p>There is no channel between actors. An actor that wants another actor to know something signals the machine; the machine&rsquo;s state is what the other actor reads. Anything else would be coordination the checker never saw.</p></div>
+      <div class="card no"><h3>No shared scratchpad</h3><p>Intermediate artefacts an order produces go in the report result, which becomes action data, which becomes state. If it is too large for state, it is a reference the state carries. The run is the only shared thing.</p></div>
+      <div class="card no"><h3>polycrew does not create participants</h3><p>There is no <code>spawnActor</code>. A run fans out <em>work</em> &mdash; child runs whose orders wait for whoever is attached with the right role &mdash; never <em>workers</em>. Instantiating an agent from a definition, or paging a person, is an outward act that belongs to the host; a workflow that needs one emits an ordinary work order for it and records the actor id that comes back. If nobody attaches, the join&rsquo;s timer (MA-11) is what ends the wait.</p></div>
+      <div class="card no"><h3>No dynamic roles or negotiation</h3><p>Roles are declared in the workflow and fixed at admission. An actor cannot promote itself, and a run cannot invent a role. Who may do what is part of what was checked.</p></div>
+      <div class="card no"><h3>No model on any coordination decision</h3><p>Order routing, claim arbitration, join detection, duplicate rejection, report rendering: all deterministic, all replayable from the journal. A model only ever decides how to fulfil one order.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <div class="eyebrow">11 &middot; Plan</div>
+      <h2>Three milestones, each measurable with the phase-3 harness</h2>
+    </div>
+    <div class="phases">
+      <div class="phase">
+        <div class="ph-top"><h3>C1 &mdash; hands</h3><span class="ph-when">one machine, many actors</span></div>
+        <ul>
+          <li><b>One broker per instance area</b> &mdash; the prerequisite for everything else. Settle the route first (&sect;0b): either the MCP server becomes a daemon with a streamable transport and the stdio binary a thin proxy, or claims and completions go through a Postgres store and stdio stays. Build the second if it holds; it keeps polyflow&rsquo;s zero-infrastructure install intact.</li>
+          <li><b>actor</b> on every write; <b>roles</b> in the descriptor; <code>workflow_attach</code>, <code>workflow_next</code>, <code>workflow_claim</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-1..4, 6..9</span></li>
+          <li><b>Journal columns</b> actor and order_id. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-14</span></li>
+          <li><b>Measure</b>: two gatherers on one run&rsquo;s multi-order step; kill one mid-order; expect one completion per order and the re-offer in the journal.</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="ph-top"><h3>C2 &mdash; crews</h3><span class="ph-when">fan-out and join</span></div>
+        <ul>
+          <li><b>children</b> in the descriptor with derived keys; the broker serves children&rsquo;s orders under the parent&rsquo;s area. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-5, 10, 12</span></li>
+          <li><b>The gate grows two checks</b>: waiting states arm timers; <code>check-product</code> over <code>invariants.compose.mjs</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-11, 13</span></li>
+          <li><b><code>workflow_progress</code></b>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-15</span></li>
+          <li><b>Measure</b>: <code>customer-brief-crew</code>, n=8, three gatherers, one killed; and its refused twin with the deadline removed.</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="ph-top"><h3>C3 &mdash; the record</h3><span class="ph-when">reports and wake-ups</span></div>
+        <ul>
+          <li><b><code>workflow_report_run</code></b>, deterministic, hash-stamped, and the optional <code>narrate</code> order. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-16</span></li>
+          <li><b>Host events</b> over journal fan-out; selfwake on OpenWorker first. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-17</span></li>
+          <li><b>Measure</b>: the same run rendered on two machines is byte-identical; a coordinator session with no polling wakes exactly once per join.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Two dependencies outside polyflow, both already in polyrun&rsquo;s plan: journal fan-out (FR-7.5, M2) for C3, and the open items in composition-plan.md that bound what C2&rsquo;s gate can prove &mdash; one level of children, no joint mid-flight seeding. Both are stated as limits in the certificate, not hidden.</p>
+  </section>
+
+  <footer>
+    polycrew specification &middot; draft 2 &middot; 26 August 2026 &middot; Cognitive Fab LLC &middot; grounded in polyflow <code>src/</code> at HEAD and polyrun FR-1&ndash;FR-8
+  </footer>
+
+</div>
+
+</body>
