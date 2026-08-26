@@ -7,6 +7,7 @@
 //   --host kiro         Kiro / Kiro Crew user or workspace config
 //   --host claude-code  .mcp.json in the current directory
 //   --host hermes       ~/.hermes/config.yaml, under mcp_servers:
+//   --host dsh          DeepSeek Harness — prints a cordis.yml plugin entry
 //   --host nemo         NVIDIA NeMo Agent Toolkit — prints YAML
 //   --host registry     AWS Agent Registry — prints the CLI call
 //   --host generic      prints the mcpServers entry for any MCP client
@@ -38,6 +39,7 @@ const argv = process.argv.slice(2);
 /** Accepts both `--k v` and `--k=v`; an unknown `--k=v` is an error, not a
  *  silently-ignored argument that installs somewhere the caller did not ask for. */
 const KNOWN = new Set(['host', 'print', 'scope', 'agent', 'workspace', 'name', 'db', 'workflows']);
+const HOST_NAMES = 'openworker, kiro, hermes, claude-code, dsh, nemo, registry, generic';
 for (const arg of argv) {
   if (!arg.startsWith('--')) continue;
   const key = arg.slice(2).split('=')[0];
@@ -186,6 +188,29 @@ if (host === 'hermes') {
 
 // --- print-only hosts --------------------------------------------------------
 
+if (host === 'dsh') {
+  // cordis.yml is a LIST of plugin entries, not a map keyed by server name, so
+  // there is nothing to merge into safely without a YAML parser. Print the
+  // entry; the user appends it.
+  const y = (v) => JSON.stringify(String(v));
+  console.log(`# DeepSeek Harness — append to the plugins list in your cordis.yml.
+# One dsh-mcp-client instance per MCP server. Tools arrive as mcp__polyflow__*.
+
+- id: mcp-${SERVER_KEY}
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: ${SERVER_KEY}
+    transport: stdio
+    command: ${y(process.execPath)}
+    args: [${y(SERVER)}]
+    cwd: ${y(ROOT)}
+    env:
+${Object.entries(env).map(([k, v]) => `      ${k}: ${y(v)}`).join(String.fromCharCode(10))}
+    # Fail activation rather than starting with no workflow tools at all.
+    failOnStartupError: true`);
+  process.exit(0);
+}
+
 if (host === 'nemo') {
   const yamlArgs = [SERVER].map((a) => `"${a}"`).join(', ');
   console.log(`# NVIDIA NeMo Agent Toolkit — add to your workflow YAML.
@@ -238,7 +263,7 @@ aws agent-registry-control submit-registry-record-for-approval \\
 
 if (host === 'generic' || !HOSTS[host]) {
   if (host !== 'generic') {
-    console.error(`unknown --host '${host}'. Known: ${Object.keys(HOSTS).join(', ')}, nemo, registry, generic`);
+    console.error(`unknown --host '${host}'. Known: ${HOST_NAMES}`);
   }
   console.log(JSON.stringify({ mcpServers: { [SERVER_KEY]: mcpEntry() } }, null, 2));
   process.exit(host === 'generic' ? 0 : 2);

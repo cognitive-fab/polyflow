@@ -67,6 +67,25 @@ test('initialize, tools/list, tools/call over stdio', async (t) => {
   const reads = listed.result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name).sort();
   assert.deepEqual(reads, ['workflow_journal', 'workflow_list', 'workflow_state']);
 
+  // Hosts that validate structuredContent against outputSchema fall back to
+  // unconstrained JSON on vocabulary they do not support, so the schemas stay
+  // in the plain subset and declare no `required` (an error reply carries
+  // `error` instead of a view).
+  const SUPPORTED = new Set(['object', 'array', 'string', 'number', 'boolean']);
+  const walk = (schema, path) => {
+    assert.ok(SUPPORTED.has(schema.type), `${path}: unsupported type ${JSON.stringify(schema.type)}`);
+    assert.equal(schema.required, undefined, `${path}: must not declare required`);
+    for (const key of ['oneOf', 'anyOf', 'allOf', '$ref', 'not']) {
+      assert.equal(schema[key], undefined, `${path}: must not use ${key}`);
+    }
+    for (const [k, v] of Object.entries(schema.properties ?? {})) walk(v, `${path}.${k}`);
+    if (schema.items) walk(schema.items, `${path}[]`);
+  };
+  for (const tool of listed.result.tools) {
+    assert.ok(tool.outputSchema, `${tool.name} must advertise an outputSchema`);
+    walk(tool.outputSchema, tool.name);
+  }
+
   const called = await rpc('tools/call', { name: 'workflow_list', arguments: {} });
   assert.ok(!called.result.isError);
   const wf = called.result.structuredContent.workflows.find((w) => w.name === 'customer-brief');
@@ -77,6 +96,31 @@ test('initialize, tools/list, tools/call over stdio', async (t) => {
     arguments: { workflow: 'customer-brief', input: { date: '2026-08-25' } },
   });
   assert.equal(started.result.structuredContent.next[0].tool, 'github_search_issues');
+
+  // Drift guard: everything a call actually returns has to be declared, and no
+  // field may be null — absent is representable in the schema subset, null is not.
+  const schemaOf = (n) => listed.result.tools.find((t) => t.name === n).outputSchema;
+  const conforms = (value, schema, path) => {
+    assert.notEqual(value, null, `${path} is null; omit the field instead`);
+    if (schema.type === 'object' && schema.properties) {
+      for (const [k, v] of Object.entries(value)) {
+        assert.ok(schema.properties[k], `${path}.${k} is returned but not declared`);
+        conforms(v, schema.properties[k], `${path}.${k}`);
+      }
+    } else if (schema.type === 'array' && schema.items) {
+      value.forEach((item, i) => conforms(item, schema.items, `${path}[${i}]`));
+    } else if (schema.type !== 'object') {
+      assert.equal(typeof value, schema.type, `${path} should be ${schema.type}`);
+    }
+  };
+  conforms(started.result.structuredContent, schemaOf('workflow_start'), 'workflow_start');
+  const catalog = await rpc('tools/call', { name: 'workflow_list', arguments: {} });
+  conforms(catalog.result.structuredContent, schemaOf('workflow_list'), 'workflow_list');
+  const log = await rpc('tools/call', {
+    name: 'workflow_journal',
+    arguments: { instance: started.result.structuredContent.instance },
+  });
+  conforms(log.result.structuredContent, schemaOf('workflow_journal'), 'workflow_journal');
 
   // A tool failure must come back as a readable result, not a protocol error.
   const bad = await rpc('tools/call', { name: 'workflow_state', arguments: { instance: 'nope' } });

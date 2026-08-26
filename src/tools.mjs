@@ -17,6 +17,47 @@ const str = (t, d) => ({ type: t, description: d });
 const READ = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
 const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
+// Output schemas. Hosts that validate `structuredContent` against an advertised
+// outputSchema (DeepSeek Harness does) fall back to unconstrained JSON when the
+// schema uses vocabulary they do not support, so this stays in the plain
+// subset: object/array/string/number/boolean, properties, items. No unions, no
+// $ref, and no `required` — an error reply carries `error` instead of a view,
+// and a schema that insisted on the view would reject it.
+const obj = (properties, description) => ({ type: 'object', properties, description });
+
+const WORK_ORDER = {
+  type: 'object',
+  properties: {
+    order_id: { type: 'string', description: 'pass this back to workflow_report' },
+    tool: { type: 'string', description: 'the tool to call' },
+    target: { type: 'string', description: 'what to call it against; absent when the tool needs no target' },
+    args: { type: 'object', description: 'arguments for the call' },
+    why: { type: 'string', description: 'why this step exists' },
+    attempt: { type: 'number', description: '1 on the first offer, higher after a retry' },
+  },
+};
+
+const RUN_VIEW = obj({
+  instance: { type: 'string' },
+  workflow: { type: 'string' },
+  key: { type: 'string', description: 'the name identifying this run' },
+  status: { type: 'string' },
+  state: { type: 'object', description: 'the workflow-specific state tree' },
+  done: { type: 'boolean' },
+  already_complete: { type: 'boolean', description: 'present only when the run had already finished' },
+  next: { type: 'array', items: WORK_ORDER, description: 'the work orders to carry out now' },
+  waiting: { type: 'string', description: 'present when the run is waiting on a timer' },
+  note: { type: 'string' },
+  key_note: { type: 'string' },
+  error: { type: 'string', description: 'present instead of a view when the call could not be applied' },
+  hint: { type: 'string' },
+  step_kind: { type: 'string', description: 'workflow_signal only: accepted or rejected' },
+  reason: { type: 'string', description: 'workflow_signal only: why a step was rejected' },
+}, 'the run as it stands, plus the work orders to carry out now');
+
+/** Drop null and undefined fields: absent is representable in the schema subset, null is not. */
+const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
+
 export function makeTools(pf) {
   const view = async (instanceId, sinceSeq) => {
     const v = sinceSeq === undefined
@@ -30,7 +71,7 @@ export function makeTools(pf) {
       done: v.done,
       key: v.key,
       already_complete: v.done ? true : undefined,
-      next: v.orders.map((o) => ({
+      next: v.orders.map((o) => compact({
         order_id: o.orderId,
         tool: o.tool,
         target: o.target,
@@ -47,20 +88,43 @@ export function makeTools(pf) {
         : undefined,
     };
   };
+  const runView = async (...args) => compact(await view(...args));
 
   return [
     {
       name: 'workflow_list',
+      outputSchema: obj({
+        workflows: {
+          type: 'array',
+          description: 'the workflows this agent can run',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              description: { type: 'string' },
+              area: { type: 'string' },
+              admitted: { type: 'boolean', description: 'false means it failed its check and cannot be started' },
+              guarantees: { type: 'array', items: { type: 'string' }, description: 'the rules it was admitted under' },
+              tools: { type: 'array', items: { type: 'string' } },
+              key: obj({
+                template: { type: 'string' },
+                derived_from: { type: 'array', items: { type: 'string' } },
+              }, 'how a run of this workflow is identified; absent when the caller names it'),
+            },
+          },
+        },
+      }),
       annotations: READ,
       description:
         'List the workflows this agent knows how to run, with the guarantees each one was ' +
         'admitted under. A workflow that failed its emission check is listed as admitted:false ' +
         'and cannot be started.',
       inputSchema: { type: 'object', properties: {} },
-      handler: async () => ({ workflows: pf.catalog() }),
+      handler: async () => ({ workflows: pf.catalog().map(({ certified, ...w }) => compact(w)) }),
     },
     {
       name: 'workflow_start',
+      outputSchema: RUN_VIEW,
       annotations: { ...WRITE, idempotentHint: true },
       description:
         'Start a run of a workflow, or re-attach to the run this input already names. Idempotent: ' +
@@ -86,12 +150,13 @@ export function makeTools(pf) {
       },
       handler: async ({ workflow, key, input }) => {
         const started = await pf.begin(workflow, key ?? null, input ?? {});
-        const v = await view(started.instanceId, -1);
+        const v = await runView(started.instanceId, -1);
         return started.note ? { ...v, key_note: started.note } : v;
       },
     },
     {
       name: 'workflow_report',
+      outputSchema: RUN_VIEW,
       annotations: { ...WRITE, idempotentHint: false },
       description:
         'Report the result of a work order and receive the next one. Set ok:false for an ' +
@@ -115,11 +180,12 @@ export function makeTools(pf) {
         const before = (await pf.view(order.instanceId)).seq;
         const ack = pf.report(order_id, { ok, result, error, permanent });
         if (!ack.ok) return { error: ack.reason, hint: ack.hint };
-        return view(order.instanceId, before);
+        return runView(order.instanceId, before);
       },
     },
     {
       name: 'workflow_state',
+      outputSchema: RUN_VIEW,
       annotations: READ,
       description: 'Current state and open work orders for a run, without changing anything.',
       inputSchema: {
@@ -127,10 +193,11 @@ export function makeTools(pf) {
         required: ['instance'],
         properties: { instance: str('string', 'instance id') },
       },
-      handler: async ({ instance }) => view(instance),
+      handler: async ({ instance }) => runView(instance),
     },
     {
       name: 'workflow_signal',
+      outputSchema: RUN_VIEW,
       annotations: { ...WRITE, idempotentHint: false },
       description:
         'Send an event that did not come from a work order — an out-of-band cancel, or an ' +
@@ -147,11 +214,27 @@ export function makeTools(pf) {
       },
       handler: async ({ instance, action, data = {} }) => {
         const step = await pf.dispatch(instance, action, data);
-        return { step_kind: step.stepKind, reason: step.rejectReason ?? null, ...(await view(instance)) };
+        return compact({ step_kind: step.stepKind, reason: step.rejectReason, ...(await runView(instance)) });
       },
     },
     {
       name: 'workflow_journal',
+      outputSchema: obj({
+        journal: {
+          type: 'array',
+          description: 'every step of the run, accepted or rejected',
+          items: {
+            type: 'object',
+            properties: {
+              seq: { type: 'number' },
+              action: { type: 'string' },
+              step_kind: { type: 'string', description: 'accepted or rejected' },
+              reason: { type: 'string', description: 'why a step was rejected; absent when accepted' },
+              post: { type: 'object', description: 'the state after the step' },
+            },
+          },
+        },
+      }),
       annotations: READ,
       description:
         'The full journal of a run: every step, accepted or rejected, with its reason. This is ' +
@@ -162,8 +245,9 @@ export function makeTools(pf) {
         properties: { instance: str('string', 'instance id') },
       },
       handler: async ({ instance }) => ({
-        journal: (await pf.journal(instance)).map((r) => ({
-          seq: r.seq, action: r.action, step_kind: r.step_kind, reason: r.reject_reason ?? r.reason ?? null, post: r.post,
+        journal: (await pf.journal(instance)).map((r) => compact({
+          seq: r.seq, action: r.action, step_kind: r.step_kind,
+          reason: r.reject_reason ?? r.reason, post: r.post,
         })),
       }),
     },

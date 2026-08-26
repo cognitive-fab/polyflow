@@ -165,6 +165,7 @@ node bin/polyflow-install.mjs --host generic       # prints the entry, writes no
 Two hosts take a different shape and are printed rather than written:
 
 ```bash
+node bin/polyflow-install.mjs --host dsh       # cordis.yml plugin entry for DeepSeek Harness
 node bin/polyflow-install.mjs --host nemo      # YAML for a NeMo Agent Toolkit workflow
 node bin/polyflow-install.mjs --host registry  # AWS CLI call to publish an Agent Registry record
 ```
@@ -187,6 +188,14 @@ node bin/polyflow-install.mjs --host registry  # AWS CLI call to publish an Agen
   nothing while every write still stops for approval. polyflow is stdio, so
   there is no `hermes mcp login` step. If you already have polyflow in
   `~/.claude.json`, `hermes import-agent claude-code` migrates it.
+- **DeepSeek Harness** (`dsh`) bridges MCP servers through its `dsh-mcp-client`
+  plugin, one instance per server, configured in `cordis.yml`. That file is a
+  list of plugin entries rather than a map keyed by server name, so there is
+  nothing to merge into safely without a YAML parser — the entry is printed and
+  you append it. It is set to `failOnStartupError: true`, so a broken polyflow
+  fails activation instead of leaving the agent with no workflow tools and no
+  sign of why. dsh validates `structuredContent` against a tool's advertised
+  `outputSchema`, which polyflow declares for all six tools.
 - **NVIDIA NeMo Agent Toolkit** connects through its `mcp_client` function
   group (needs `nvidia-nat-mcp`). The printed block declares the group and adds
   it to a workflow's `tool_names`. NeMo can also run as an MCP server itself, so
