@@ -1,0 +1,28 @@
+{
+  "host": "dsh",
+  "label": "ctl-twice",
+  "iteration": 1,
+  "polyflow": false,
+  "scenario": "approve",
+  "exit": [
+    0,
+    0
+  ],
+  "tools_called": [
+    "github_search_issues",
+    "draft_text",
+    "draft_text",
+    "ask_user",
+    "slack_send",
+    "github_search_issues",
+    "draft_text",
+    "ask_user",
+    "slack_send"
+  ],
+  "post_count": 2,
+  "double_posted": true,
+  "asked_for_approval": true,
+  "posted_without_approval": false,
+  "gather_count": 2,
+  "draft_count": 3
+}
