@@ -14,11 +14,15 @@
 //   --scope workspace   for --host kiro: write into ./.kiro instead of ~/.kiro
 //   --agent NAME        agent-class area (default openworker/cowork)
 //   --workspace NAME    instance area (default the current directory's name)
+//   --name KEY          server key in mcpServers (default polyflow) — use a
+//                       second key to register a second workspace alongside
+//   --db PATH           run store (default ~/.polyflow when installed globally)
+//   --workflows PATH    workflow library directory
 //
 // Only the OpenWorker path has been exercised end to end. The others are built
 // from each host's documented configuration format.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -27,21 +31,47 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8')).version;
 
 const argv = process.argv.slice(2);
+
+/** Accepts both `--k v` and `--k=v`; an unknown `--k=v` is an error, not a
+ *  silently-ignored argument that installs somewhere the caller did not ask for. */
+const KNOWN = new Set(['host', 'print', 'scope', 'agent', 'workspace', 'name', 'db', 'workflows']);
+for (const arg of argv) {
+  if (!arg.startsWith('--')) continue;
+  const key = arg.slice(2).split('=')[0];
+  if (!KNOWN.has(key)) {
+    console.error(`unknown option --${key}. Known: ${[...KNOWN].map((k) => `--${k}`).join(' ')}`);
+    process.exit(2);
+  }
+}
 const flag = (name, dflt) => {
+  const eq = argv.find((a) => a.startsWith(`--${name}=`));
+  if (eq) return eq.slice(name.length + 3);
   const i = argv.indexOf(`--${name}`);
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : dflt;
 };
 const has = (name) => argv.includes(`--${name}`);
 
+/** `~` in an env var or a flag is the user's home, the way a shell would read it. */
+const expand = (p) => (p.startsWith('~') ? join(homedir(), p.slice(1).replace(/^[\\/]/, '')) : p);
+
 const AGENT = flag('agent', 'openworker/cowork');
 const WORKSPACE = flag('workspace', basename(process.cwd()));
+const SERVER_KEY = flag('name', 'polyflow');
 const SERVER = resolve(ROOT, 'bin', 'polyflow-mcp.mjs');
+
+// A global install puts ROOT inside node_modules, which the next `npm i -g`
+// deletes and re-extracts. Durable run state must not live there, and neither
+// should workflows the user edits.
+const PACKAGED = /[\\/]node_modules[\\/]polyflow$/.test(ROOT);
+const HOME_DIR = join(homedir(), '.polyflow');
+const DB = resolve(expand(flag('db', PACKAGED ? join(HOME_DIR, 'polyflow.sqlite') : join(ROOT, '.polyflow', 'polyflow.sqlite'))));
+const WORKFLOWS = resolve(expand(flag('workflows', PACKAGED ? join(HOME_DIR, 'workflows') : join(ROOT, 'workflows'))));
 const DESCRIPTION =
   'Runs checked, resumable workflows. Start one, do the work order it hands back with the tool it names, report the result.';
 
 const env = {
-  POLYFLOW_WORKFLOWS: resolve(ROOT, 'workflows'),
-  POLYFLOW_DB: resolve(ROOT, '.polyflow', 'polyflow.sqlite'),
+  POLYFLOW_WORKFLOWS: WORKFLOWS,
+  POLYFLOW_DB: DB,
   POLYFLOW_AGENT: AGENT,
   POLYFLOW_INSTANCE: WORKSPACE,
 };
@@ -66,7 +96,9 @@ const OPENWORKER_EXTRA = {
 };
 
 function coworkerStateDir() {
-  if (process.env.COWORKER_STATE_DIR) return resolve(process.env.COWORKER_STATE_DIR);
+  // OpenWorker's own state_dir() expands `~`; resolving it literally would write
+  // a config file it never reads.
+  if (process.env.COWORKER_STATE_DIR) return resolve(expand(process.env.COWORKER_STATE_DIR));
   if (process.platform === 'win32' && process.env.APPDATA) return join(process.env.APPDATA, 'coworker');
   return join(homedir(), '.config', 'coworker');
 }
@@ -152,7 +184,7 @@ if (host === 'generic' || !HOSTS[host]) {
   if (host !== 'generic') {
     console.error(`unknown --host '${host}'. Known: ${Object.keys(HOSTS).join(', ')}, nemo, registry, generic`);
   }
-  console.log(JSON.stringify({ mcpServers: { polyflow: mcpEntry() } }, null, 2));
+  console.log(JSON.stringify({ mcpServers: { [SERVER_KEY]: mcpEntry() } }, null, 2));
   process.exit(host === 'generic' ? 0 : 2);
 }
 
@@ -165,7 +197,7 @@ const entry = entryFor();
 if (has('print')) {
   console.log(`# ${label}`);
   console.log(`# target: ${target}`);
-  console.log(JSON.stringify({ mcpServers: { polyflow: entry } }, null, 2));
+  console.log(JSON.stringify({ mcpServers: { [SERVER_KEY]: entry } }, null, 2));
   process.exit(0);
 }
 
@@ -179,15 +211,25 @@ if (existsSync(target)) {
   }
 }
 const servers = doc.mcpServers && typeof doc.mcpServers === 'object' ? doc.mcpServers : {};
-const replacing = Boolean(servers.polyflow);
-servers.polyflow = entry;
+const replacing = Boolean(servers[SERVER_KEY]);
+servers[SERVER_KEY] = entry;
 
+// Write-then-rename: this file holds every other MCP server the user has, and a
+// truncated write would lose all of them. OpenWorker's own writer does the same.
 mkdirSync(dirname(target), { recursive: true });
-writeFileSync(target, JSON.stringify({ ...doc, mcpServers: servers }, null, 2), 'utf-8');
+const tmp = `${target}.polyflow.tmp`;
+writeFileSync(tmp, JSON.stringify({ ...doc, mcpServers: servers }, null, 2), 'utf-8');
+renameSync(tmp, target);
 
-console.log(`${replacing ? 'updated' : 'added'} "polyflow" for ${label}`);
+console.log(`${replacing ? 'updated' : 'added'} "${SERVER_KEY}" for ${label}`);
 console.log(`  file:          ${target}`);
 console.log(`  agent area:    ${AGENT}`);
 console.log(`  instance area: ${WORKSPACE}`);
 console.log(`  workflows:     ${env.POLYFLOW_WORKFLOWS}`);
+console.log(`  run store:     ${env.POLYFLOW_DB}`);
+if (PACKAGED && !existsSync(WORKFLOWS)) {
+  console.log(`
+No workflows at ${WORKFLOWS} yet. Copy the bundled examples there:`);
+  console.log(`  cp -r "${join(ROOT, 'workflows')}/." "${WORKFLOWS}"`);
+}
 console.log(after);

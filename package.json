@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@cognitive-fab/sam-pattern": "^2.2.0",
-    "polygraph": "github:cognitive-fab/polygraph"
+    "polygraph": "https://github.com/cognitive-fab/polygraph/archive/8bb2fcad26c97b20d421b63b27801e6762a1640c.tar.gz"
   },
   "repository": {
     "type": "git",
@@ -38,5 +38,15 @@
     "procedural-memory",
     "openworker",
     "polyrun"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "files": [
+    "bin",
+    "src",
+    "workflows",
+    "README.md",
+    "LICENSE"
   ]
 }

@@ -9,19 +9,29 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const has = (dir) => dir && existsSync(resolve(dir, 'polyrun', 'src', 'index.mjs'));
 
-// Installed dependency first, sibling checkout second, explicit override always
-// wins — so a packaged install and a working tree both just run.
+// An explicit override is used or it fails. Falling back from a bad
+// POLYFLOW_POLYRUN would run a different engine than the one the caller asked
+// to test, and say nothing about it.
+const override = process.env.POLYFLOW_POLYRUN && resolve(process.env.POLYFLOW_POLYRUN);
+if (override && !has(override)) {
+  throw new Error(
+    `POLYFLOW_POLYRUN is set to '${process.env.POLYFLOW_POLYRUN}' but there is no ` +
+    `polyrun/src/index.mjs under ${override}. Point it at a polygraph checkout or unset it.`
+  );
+}
+
+// Otherwise: installed dependency first, sibling checkout second.
 const candidates = [
-  process.env.POLYFLOW_POLYRUN && resolve(process.env.POLYFLOW_POLYRUN),
+  override,
   resolve(here, '..', 'node_modules', 'polygraph'),
   resolve(here, '..', '..', 'polygraph'),
-];
+].filter(Boolean);
 const root = candidates.find(has);
 
 if (!root) {
   throw new Error(
     'polyrun not found. Run `npm install`, or set POLYFLOW_POLYRUN to a polygraph checkout. ' +
-    `Looked in: ${candidates.filter(Boolean).join(', ')}`
+    `Looked in: ${candidates.join(', ')}`
   );
 }
 

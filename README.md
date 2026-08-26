@@ -72,8 +72,10 @@ node bin/polyflow-mcp.mjs      # MCP stdio server
 
 ### Running alongside OpenWorker
 
-**Prerequisites:** Node 22+ (polyflow uses `node:sqlite`), and OpenWorker
-installed. polyflow needs no API key of its own — it never calls a model.
+**Prerequisites:** Node 22.13 or newer — polyflow uses `node:sqlite`, which
+needs `--experimental-sqlite` on earlier 22.x — and OpenWorker installed. The
+`engines` field enforces the floor at install time. polyflow needs no API key of
+its own: it never calls a model.
 
 **1. Register it.** From the polyflow directory:
 
@@ -107,11 +109,28 @@ over.
 
 **Areas.** `--agent` is the agent-class area (which library of workflows this
 kind of agent draws on) and `--workspace` is the instance area (whose runs
-these are). One polyflow install can serve several workspaces — register it
-once per workspace with a different `--workspace`, pointing at the same
-`POLYFLOW_DB` to share a store or different files to keep them apart.
+these are).
 
-**Adding your own workflow.** Copy `workflows/customer-brief/` and edit the six
+One install can serve several workspaces, but each needs its own entry under
+its own key — a second run of the installer with the same `--name` replaces the
+first:
+
+```bash
+node bin/polyflow-install.mjs --workspace acme
+node bin/polyflow-install.mjs --name polyflow-beta --workspace beta --db ~/.polyflow/beta.sqlite
+```
+
+Point both at the same `--db` to share a store, or at different files to keep
+the runs apart.
+
+**Where state lives.** Run from a clone, the store is `.polyflow/polyflow.sqlite`
+and the library is `./workflows`. Installed as a package, both default to
+`~/.polyflow/` instead — a global install lives under `node_modules`, which the
+next upgrade deletes and re-extracts, and durable runs must not be in there.
+`--db` and `--workflows` override either.
+
+**Adding your own workflow.** Copy `workflows/customer-brief/` into your library
+directory (`POLYFLOW_WORKFLOWS`, printed by the installer) and edit the six
 files (see [A workflow](#a-workflow) below). Restart the server: a workflow
 that fails its emission check is refused at startup and cannot be started at
 all, so a bad edit fails loudly rather than at 3AM.
@@ -126,8 +145,9 @@ harmlessly ignored without it.
 
 **Where polyrun comes from.** polyflow embeds
 [polyrun](https://github.com/cognitive-fab/polygraph) in process, resolved from
-`node_modules/polygraph`, then a sibling checkout; `POLYFLOW_POLYRUN` overrides
-both.
+`node_modules/polygraph`, then a sibling checkout. Setting `POLYFLOW_POLYRUN`
+overrides both, and a value that does not contain a polyrun build is an error
+rather than a silent fall-back to the packaged one.
 
 ### Other agent hosts
 
