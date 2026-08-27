@@ -143,4 +143,24 @@ hold.
       claims, so a page built on it would have released the very lease it was
       meant to report. `open(id, {sweep:false})` now exists for readers. 9
       tests. 53 tests.
-- [ ] 8 — acceptance
+- [x] **8 — acceptance.** A new workflow, `release-check`, that emits THREE
+      orders in one step and publishes only if all three pass — every earlier
+      step used the sequential demo, where two sessions could only ever contend
+      for the same order. Admitted at 243 paths explored, exhaustive.
+      Scripted half (`test/acceptance.test.mjs`, 4 tests): the fan-out shared
+      by two sessions with no duplicates, a failed check blocking the release
+      while the other checks still report, and a SIGKILLed session losing its
+      claim to a survivor that finishes the work — with the journal and the
+      dashboard agreeing. Live half (`FINDINGS-step8.md`): two real `claude -p`
+      sessions, one crew. Both called `workflow_start`; there is one `$create`,
+      because the run identity is derived and neither model was in a position
+      to name a second one. Four orders, four completions, no duplicates, two
+      minted ids, split without anyone splitting it. Both hit a refused claim
+      and both moved on — the step-5 guess that `claimed: false` must be an
+      answer rather than an error survived contact with a real model.
+      Two bugs found here, both under full-suite load rather than by design
+      review: a session could proxy into ANOTHER crew's broker, because derived
+      candidate port lists overlap; and two projects sharing a directory
+      basename were treated as one crew despite separate stores. A crew is now
+      a name AND a store, and a port counts as ours only if the thing answering
+      says so. 58 tests.
