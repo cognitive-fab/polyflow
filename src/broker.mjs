@@ -25,6 +25,29 @@ const OPEN = 'open';
  *   issued(instanceId)      every order ever issued for one run
  *   report(orderId, result) resolve or reject the parked handler
  *   abort(reason)           fail every parked handler, for shutdown
+ *
+ * Three obligations that are easy to miss, because a substitute that ignores
+ * them passes every fast test and only fails against a real agent:
+ *
+ *   1. `handler` MUST keep the worker lease alive for as long as it parks. The
+ *      agent is the callback and may take turns, not milliseconds; a handler
+ *      that never calls `ctx.extendLease` lets the lease expire, polyrun
+ *      re-claims the effect, and the order is re-offered at a higher attempt
+ *      WHILE THE FIRST ACTOR IS STILL WORKING IT. That is the duplicate
+ *      execution this whole design exists to prevent.
+ *
+ *   2. `orderById` MUST return at least `{ orderId, instanceId }`. It is the
+ *      only way a report gets from an order id back to its run, so it cannot
+ *      be the same projection `open()` returns — that one drops `instanceId`
+ *      deliberately, because the caller already knows the run.
+ *
+ *   3. `report` MUST resolve with an OBJECT. The resolved value becomes the
+ *      completion action's data, and an action whose data is a bare string has
+ *      no fields for the machine to read. Wrap a non-object as `{ value }`.
+ *
+ * A broker is owned by exactly one Polyflow: `abort` is unscoped by design, so
+ * sharing one across two daemons means either can fail the other's parked
+ * handlers. `Polyflow` claims its broker at construction and refuses a second.
  */
 export class Broker {
   constructor({ heartbeatMs = 60_000 } = {}) {
@@ -61,7 +84,7 @@ export class Broker {
     });
   }
 
-  /** One order by id, whatever its status. */
+  /** One order by id, whatever its status. Carries `instanceId` (contract 2). */
   orderById(orderId) { return this.orders.get(orderId); }
 
   /** Every order ever issued for one instance — introspection, not routing. */

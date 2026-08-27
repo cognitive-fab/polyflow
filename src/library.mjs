@@ -91,7 +91,17 @@ export class Library {
       const path = join(this.dir, name);
       if (!statSync(path).isDirectory()) continue;
       if (!existsSync(join(path, DESCRIPTOR))) continue;
-      this.workflows.set(name, this._read(name, path));
+      const wf = this._read(name, path);
+      // `list()` advertises wf.name and `get()` looks up by directory. Let
+      // those disagree and the workflow is listed under a name that cannot be
+      // started — "unknown workflow" for something the agent was just offered.
+      if (wf.name !== name) {
+        throw new Error(
+          `workflow in '${name}/' calls itself '${wf.name}'. `
+          + 'A workflow is named by its directory — rename one to match the other.'
+        );
+      }
+      this.workflows.set(name, wf);
     }
     return this;
   }

@@ -6,6 +6,10 @@
   "main": "src/index.mjs",
   "exports": {
     ".": "./src/index.mjs",
+    "./areas": "./src/areas.mjs",
+    "./library": "./src/library.mjs",
+    "./broker": "./src/broker.mjs",
+    "./mcp": "./src/mcp.mjs",
     "./package.json": "./package.json"
   },
   "license": "Apache-2.0",

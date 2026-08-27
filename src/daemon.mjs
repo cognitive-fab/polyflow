@@ -10,6 +10,15 @@ import { Library, deriveKey } from './library.mjs';
 import { Broker } from './broker.mjs';
 import { Area } from './areas.mjs';
 
+/** Two effect specs a library may share a kind under. Order-insensitive. */
+const sameSpec = (a = {}, b = {}) =>
+  (a.tool ?? null) === (b.tool ?? null)
+  && (a.target ?? null) === (b.target ?? null)
+  && (a.why ?? '') === (b.why ?? '');
+
+/** Marks the daemon that owns a broker, so a second one cannot share it. */
+const OWNER = Symbol.for('polyflow.brokerOwner');
+
 export class Polyflow {
   constructor({
     workflowsDir = 'workflows',
@@ -24,6 +33,12 @@ export class Polyflow {
   } = {}) {
     this.area = new Area({ agent, instance });
     this.library = new Library(workflowsDir);
+    // `abort` fails EVERY parked handler by design, so two daemons sharing a
+    // broker means either can fail the other's orders on shutdown — and for a
+    // store-backed broker, write `aborted` into rows another session is
+    // reading. One broker, one owner.
+    if (broker[OWNER]) throw new Error('this broker already belongs to another Polyflow');
+    broker[OWNER] = this;
     this.broker = broker;
     this.dbPath = dbPath;
     this.leaseMs = leaseMs;
@@ -36,6 +51,7 @@ export class Polyflow {
     this.library.load();
     const machines = [];
     const handlers = {};
+    const specs = new Map();   // effect kind -> the workflow that claimed it
 
     for (const wf of this.library.workflows.values()) {
       const cert = await this.library.certify(wf);
@@ -43,6 +59,21 @@ export class Polyflow {
       if (!cert.ok) continue; // refused: not registered, cannot be started
       machines.push(this.library.machineSpec(wf));
       for (const [kind, spec] of Object.entries(wf.tools)) {
+        // polyrun keys handlers by effect kind across the WHOLE runtime, but a
+        // spec (tool, target, why) belongs to one workflow. Two workflows
+        // declaring the same kind differently would silently overwrite each
+        // other, and runs of the first would hand the agent work orders naming
+        // the second's tool and target — wrong, with no error anywhere. So the
+        // library is refused instead: same kind, same spec, or rename it.
+        const prior = specs.get(kind);
+        if (prior && !sameSpec(prior.spec, spec)) {
+          throw new Error(
+            `effect '${kind}' is declared differently by '${prior.workflow}' and '${wf.name}': `
+            + `${JSON.stringify(prior.spec)} vs ${JSON.stringify(spec)}. `
+            + 'Effect kinds are global to a library — rename one, or make the specs identical.'
+          );
+        }
+        specs.set(kind, { workflow: wf.name, spec });
         handlers[kind] = this.broker.handler(kind, spec);
       }
     }

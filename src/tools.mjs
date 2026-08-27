@@ -257,9 +257,15 @@ export function makeTools(pf, extra = []) {
     },
   ];
 
-  const names = new Set(tools.map((t) => t.name));
+  const builtIn = new Set(tools.map((t) => t.name));
+  const names = new Set(builtIn);
   for (const t of extra) {
-    if (names.has(t.name)) throw new Error(`extra tool '${t.name}' collides with a built-in`);
+    if (names.has(t.name)) {
+      // Two extras colliding is a bug in the layer above; blaming a built-in
+      // sends the reader hunting through this file for one that isn't there.
+      throw new Error(`extra tool '${t.name}' collides with `
+        + (builtIn.has(t.name) ? 'a built-in' : 'another extra tool'));
+    }
     names.add(t.name);
   }
   return [...tools, ...extra];
