@@ -58,7 +58,13 @@ hold.
       `orderById`, `issued`, `report`, `abort`); `Polyflow` takes `broker`;
       `makeTools(pf, extra)` appends and refuses a collision.
       `test/seam.test.mjs` proves both halves. 21 tests green.
-- [ ] 1 — polycrew scaffold
+- [x] **1 — scaffold.** [`cognitive-fab/polycrew`](https://github.com/cognitive-fab/polycrew),
+      polyflow pinned to a commit tarball, the six tools served through
+      polyflow's own `serve()`. Roles read from `POLYCREW_ROLES`, and a test
+      asserts no tool schema accepts `roles` or `actor`. The library defaults
+      to the demo one polyflow ships. 3 tests, over stdio, no model.
+      Polyflow gained `src/index.mjs` and an `exports` map on the way: the
+      boundary is a door now, not a set of deep paths.
 - [ ] 2 — identity and registry
 - [ ] 3 — the order store
 - [ ] 4 — election and proxy
