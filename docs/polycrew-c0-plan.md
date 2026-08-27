@@ -127,5 +127,20 @@ hold.
       dedupe key, and part of a trace corpus. 7 tests, including a real timer
       firing against a copy of the demo workflow with a 300 ms approval window.
       44 tests.
-- [ ] 7 — the dashboard
+- [x] **7 — the dashboard.** `GET /dashboard` and `/dashboard.json` on the
+      port the broker already holds — not a second server to start and
+      remember. One `snapshot()` produces the facts and both surfaces render
+      it, so the page and the JSON cannot drift. It answers two questions in
+      order: what needs a person (orders on a human role, longest wait first),
+      then what is running (state, who holds each order, what the machine is
+      waiting for and until when). Read-only: anything but GET/HEAD is 405.
+      Loopback-only, checked twice — `acquire` refuses to bind a non-loopback
+      host at all, since nothing in polycrew is authenticated, and the route
+      refuses a non-loopback caller anyway. polyflow gained `runs()` and
+      `timers()` (v0.4.0): it could previously only describe a run you already
+      had the id of. Two bugs the first working page exposed — orders carried
+      no `issuedAt`, so every wait read as zero; and `open()` SWEEPS lapsed
+      claims, so a page built on it would have released the very lease it was
+      meant to report. `open(id, {sweep:false})` now exists for readers. 9
+      tests. 53 tests.
 - [ ] 8 — acceptance
