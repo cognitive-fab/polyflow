@@ -4,6 +4,8 @@ If you already keep two or three sessions open on one repository, you have had t
 
 polycrew has no supervisor. Agents never talk to each other; they talk to the run.
 
+Claude Code now lets sessions message each other directly, which is a useful and different thing. A message has to be sent, received and acted on, and two sessions that both forget to send one still collide. A claim is not a message: an agent that takes an order changes what every other agent is offered, without telling anyone anything. Sessions end up talking only when the work actually requires it.
+
 How it works:
 
 1. A job is a state machine, and it is checked before it loads. A workflow whose rules can be broken on any reachable path is not registered — it cannot be started at all.
