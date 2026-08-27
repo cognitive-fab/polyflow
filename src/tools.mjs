@@ -57,6 +57,7 @@ const RUN_VIEW = obj({
   error: { type: 'string', description: 'present instead of a view when the call could not be applied' },
   hint: { type: 'string' },
   step_kind: { type: 'string', description: 'workflow_signal only: accepted or rejected' },
+  step_seq: { type: 'number', description: 'workflow_signal only: which step of the run this call became' },
   reason: { type: 'string', description: 'workflow_signal only: why a step was rejected' },
 }, 'the run as it stands, plus the work orders to carry out now');
 
@@ -230,7 +231,13 @@ export function makeTools(pf, extra = []) {
       },
       handler: async ({ instance, action, data = {} }) => {
         const step = await pf.dispatch(instance, action, data);
-        return compact({ step_kind: step.stepKind, reason: step.rejectReason, ...(await runView(instance)) });
+        // `step_seq` locates this call's own row in the journal. A caller that
+        // has to find it by reading back and matching the action name gets the
+        // wrong row as soon as a second session signals the same action.
+        return compact({
+          step_kind: step.stepKind, step_seq: step.seq, reason: step.rejectReason,
+          ...(await runView(instance)),
+        });
       },
     },
     {
