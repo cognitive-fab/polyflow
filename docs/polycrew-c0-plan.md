@@ -78,7 +78,22 @@ hold.
       arbitration, lapse-and-re-offer, report-after-losing-the-lease,
       double-settle, role refusal, and a polyrun re-offer arriving as the same
       order at a higher attempt. 25 tests in polycrew.
-- [ ] 4 — election and proxy
+- [x] **4 — election and proxy.** Binding the crew's port is the election;
+      the winner opens the store and runs the engine, the losers forward over
+      loopback and take over when it dies. Three corrections came out of real
+      processes rather than design: a *bound* port is not a *ready* broker, so
+      `/rpc` answers 503 until the engine is up and callers retry; a *failed
+      bind* is not proof a broker is there, so a port counts as taken only when
+      something answers `/health`; and consecutive candidate ports are not
+      enough, because this machine refuses a contiguous 4,000-port block with
+      nothing listening on it (Windows reserves ranges that
+      `netsh excludedportrange` does not always list). Candidates now step by a
+      stride coprime with the range, so every session of a crew still walks the
+      same list in the same order and the crew converges on one port together.
+      5 end-to-end tests with real processes: three racing for one port, a call
+      crossing the seam, two sessions deriving one run through it, a SIGKILLed
+      broker succeeded by exactly one proxy with the run and its open orders
+      intact, and a failed tool that must not read as an election. 30 tests.
 - [ ] 5 — the crew tools
 - [ ] 6 — actor attribution
 - [ ] 7 — the dashboard
