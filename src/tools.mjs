@@ -251,6 +251,13 @@ export function makeTools(pf, extra = []) {
             properties: {
               seq: { type: 'number' },
               action: { type: 'string' },
+              action_id: {
+                type: 'string',
+                description: 'what caused this step, and the key the engine dedupes it by: '
+                  + '$create for the run starting, <order_id>:done for a work order being '
+                  + 'reported, timer:<id> for a timer firing, child:<instance>:complete for a '
+                  + 'child finishing',
+              },
               step_kind: { type: 'string', description: 'accepted or rejected' },
               reason: { type: 'string', description: 'why a step was rejected; absent when accepted' },
               post: { type: 'object', description: 'the state after the step' },
@@ -269,7 +276,7 @@ export function makeTools(pf, extra = []) {
       },
       handler: async ({ instance }) => ({
         journal: (await pf.journal(instance)).map((r) => compact({
-          seq: r.seq, action: r.action, step_kind: r.step_kind,
+          seq: r.seq, action: r.action, action_id: r.action_id, step_kind: r.step_kind,
           reason: r.reject_reason ?? r.reason, post: r.post,
         })),
       }),
