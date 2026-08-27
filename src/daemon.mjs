@@ -184,6 +184,44 @@ export class Polyflow {
     return this.rt.dispatch(instanceId, action, data, actionId);
   }
 
+  /**
+   * Every run of this area, newest first. polyrun lists instances per machine,
+   * so this asks each admitted workflow and keeps what belongs to this area —
+   * a second agent or a second project writing to the same file is a different
+   * area, and none of its runs are ours to show.
+   *
+   * @param {{status?: string}} o  'active' for runs still in flight; omit for all
+   */
+  async runs({ status } = {}) {
+    const mine = `${this.area}|`;
+    const out = [];
+    for (const name of this.library.workflows.keys()) {
+      if (!this.admitted(name)) continue;
+      for (const r of await this.rt.store.listInstances(name, status)) {
+        if (!String(r.instance_id).startsWith(mine)) continue;
+        out.push({
+          instanceId: r.instance_id,
+          workflow: name,
+          key: Area.parse(r.instance_id).key,
+          status: r.status,
+          state: r.state,
+          seq: r.seq,
+          updatedAt: r.updated_at ?? null,
+          done: r.status !== 'active' || this._isTerminal(name, r.state),
+        });
+      }
+    }
+    return out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }
+
+  /** Timers armed on one run — what the machine is waiting for, and until when. */
+  async timers(instanceId) {
+    const rows = await this.rt.store.getTimers(instanceId);
+    return rows
+      .filter((r) => r.status === 'scheduled')
+      .map((r) => ({ key: r.key, action: r.action, fireAt: r.fire_at, instanceId: r.instance_id }));
+  }
+
   journal(instanceId) { return this.rt.getJournal(instanceId); }
   traces(instanceId) { return this.rt.exportTraces(instanceId); }
 

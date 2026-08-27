@@ -264,3 +264,55 @@ test('the reporting actor rides beside the arguments, never inside them', async 
   await report.handler({ order_id: v.next[0].order_id, result: {} });
   assert.deepEqual(broker.reporters, ['claude-code/aaaa', null]);
 });
+
+test('runs() lists this area and no other, and timers() what it waits on', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-runs-'));
+  const pf = new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'runs.sqlite'),
+    agent: 'polycrew', instance: 'acme', pollMs: 20, broker: new RecordingBroker(),
+  });
+  await pf.start();
+  t.after(async () => {
+    await pf.close();
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ }
+  });
+
+  const tools = makeTools(pf);
+  const call = (n, a) => tools.find((x) => x.name === n).handler(a);
+
+  await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-12-02' } });
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2026-12-01' } });
+
+  // What a second project sharing this file leaves behind: a real instance row
+  // in another area. Written directly rather than by a second daemon, because
+  // two runtimes on one store poll the same outbox and claim each other's
+  // effects — the configuration a crew avoids by electing ONE broker, so it is
+  // not one polyflow should be tested in.
+  await pf.rt.store.insertInstance({
+    instanceId: 'polycrew|other|customer-brief|2026-12-03',
+    machineId: 'customer-brief',
+    machineVersion: 'whatever',
+    state: { briefState: 'gathering', ticketCount: 0, reason: '' },
+    now: Date.now(),
+  });
+
+  const runs = await pf.runs({ status: 'active' });
+  assert.deepEqual(runs.map((r) => r.key).sort(), ['2026-12-01', '2026-12-02'],
+    'another area shares the file, not the view');
+  for (const r of runs) {
+    assert.equal(r.workflow, 'customer-brief');
+    assert.equal(r.done, false);
+    assert.ok(r.instanceId.startsWith('polycrew|acme|'));
+  }
+
+  // Drive one into review, where the workflow arms its approval window.
+  v = await call('workflow_report', { order_id: v.next[0].order_id, result: { count: 1 } });
+  v = await call('workflow_report', { order_id: v.next[0].order_id, result: {} });
+  assert.equal(v.state.briefState, 'review');
+
+  const timers = await pf.timers(v.instance);
+  assert.equal(timers.length, 1, 'the run is waiting on something a person can be shown');
+  assert.equal(timers[0].action, 'DENIED');
+  assert.ok(timers[0].fireAt > Date.now(), 'and when it runs out');
+  assert.deepEqual(await pf.timers('polycrew|acme|customer-brief|2026-12-02'), []);
+});
