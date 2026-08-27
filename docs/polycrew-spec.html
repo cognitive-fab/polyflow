@@ -111,7 +111,7 @@
 <div class="page">
 
   <header class="mast">
-    <div class="eyebrow">polycrew &middot; specification &middot; draft 2</div>
+    <div class="eyebrow">polycrew &middot; specification &middot; draft 3</div>
     <h1>Many hands,<br>one journal</h1>
     <p class="lede">polycrew is the multi-participant layer over polyflow. How several agents &mdash; and the people among them &mdash; work one run at the same time, how they wait for each other, and how what they did becomes a record nobody has to take on faith. Every coordination is a journaled step of a machine that was checked before it loaded. Agents never talk to each other; they talk to the run.</p>
     <div class="method">
@@ -162,7 +162,7 @@
       <div class="card yes"><h3>Identity is derived, never chosen</h3><p>Runs already derive their key from validated input. Children derive theirs the same way from the data that spawned them. An agent cannot start a second copy of a sub-task by inventing a name (FINDINGS-phase3 &sect;6, extended).</p></div>
       <div class="card yes"><h3>Every step names its actor</h3><p>Who claimed, who reported, who signalled &mdash; on the journal row. The journal already answers <em>what happened</em>; it now answers <em>who did it</em>, which is what a report is.</p></div>
       <div class="card no"><h3>polyflow still calls no tool</h3><p>The inversion holds with many agents exactly as with one: each agent runs its tools under its own credentials and gates. polyflow hands out orders and records results. It never acquires a connector because there are more agents.</p></div>
-      <div class="card no"><h3>No model on the coordination path</h3><p>Which agent gets an order, whether a join has opened, whether a report is a duplicate &mdash; all deterministic. A model decides <em>how</em> to fulfil an order; never whether the run may proceed.</p></div>
+      <div class="card no"><h3>No model on the coordination path</h3><p>Whether a join has opened, whether a report is a duplicate, whether an order may be claimed &mdash; all deterministic. A model decides <em>how</em> to fulfil an order; never whether the run may proceed.</p><p><b>What determinism claims:</b> given the sequence of accepted actions the state is a function of them, and the journal reproduces it on any machine. <em>Which</em> actor claimed which order is not deterministic &mdash; it is first-come against wall-clock arrival &mdash; and does not need to be. The outcome must not depend on who got what; the journal records who did.</p></div>
     </div>
   </section>
 
@@ -259,9 +259,11 @@
     </div>
 
     <div class="req"><span class="rid">MA-1</span><div class="rbody">
-      <h3>Every write call carries an actor</h3>
-      <p><code>workflow_start</code>, <code>workflow_claim</code>, <code>workflow_report</code> and <code>workflow_signal</code> take <code>actor: string</code>. The daemon qualifies it as <code>{agent}/{actor}</code> using the agent area it was started with. A call without an actor is refused with an instruction, the same way a bad key field is today (<code>library.mjs deriveKey</code>): the model is told what to supply, not routed around.</p>
-      <div class="src"><b>where</b> tools.mjs input schemas · daemon.mjs begin/report/dispatch</div>
+      <h3>The server derives the actor; no model ever supplies one</h3>
+      <p>An earlier draft had every write call take <code>actor: string</code>. That contradicts principle 3 and repeats the derived-key finding: anything a model names, a model can get wrong &mdash; two sessions choosing the same id, or one session inventing a second identity for itself, and claim arbitration quietly stops meaning anything.</p>
+      <p>It does not need to be supplied. A stdio MCP server <em>is</em> the session: one process per <code>claude</code> invocation, per OpenWorker session, per Kiro run. The server mints its actor id at boot and stamps every call it makes. The model never sees it, cannot collide with it, cannot rename itself. Under a shared broker the stdio side is still per-session, so the proxy mints it there instead.</p>
+      <p>The id lives for the life of the process and is written to the instance registry (MA-21), so a dashboard can name a session that is still running and mark one that is gone.</p>
+      <div class="src"><b>where</b> bin/polyflow-mcp.mjs mints on boot &middot; daemon.mjs stamps begin/report/dispatch &middot; <code>actor</code> leaves four tool schemas</div>
     </div></div>
 
     <div class="req"><span class="rid">MA-2</span><div class="rbody">
@@ -280,13 +282,13 @@
 
     <div class="req"><span class="rid">MA-3</span><div class="rbody">
       <h3>An actor attaches with the roles it can play</h3>
-      <p>New tool <code>workflow_attach { actor, roles[] }</code>. It is idempotent and returns the workflows in the library whose roles intersect the actor&rsquo;s. Attaching is not joining a run &mdash; it is the actor saying what kind of order it will accept. OpenWorker&rsquo;s <code>personas/</code> and <code>teams/</code> are where an integrator would source the role list; Kiro Crew members map the same way.</p>
+      <p>New tool <code>workflow_attach { roles[] }</code> &mdash; the actor is the server&rsquo;s own (MA-1). It is idempotent and returns the workflows in the library whose roles intersect the actor&rsquo;s. Attaching is not joining a run &mdash; it is the actor saying what kind of order it will accept. OpenWorker&rsquo;s <code>personas/</code> and <code>teams/</code> are where an integrator would source the role list; Kiro Crew members map the same way.</p>
       <div class="src"><b>where</b> tools.mjs · a small in-store actor registry keyed by instance area, so a restart forgets nothing</div>
     </div></div>
 
     <div class="req"><span class="rid">MA-4</span><div class="rbody">
       <h3>Orders are offered by role, not by run</h3>
-      <p>New tool <code>workflow_next { actor, instance? }</code> returns open, unclaimed orders whose role the actor may play &mdash; across every active run in the instance area, or one run if named, and including the children of a parent. This is what lets a pool of gatherers drain a fan-out without anyone assigning work: each asks for the next order it is allowed to do. <code>workflow_state</code> keeps returning the whole run, with each order&rsquo;s role and claim shown.</p>
+      <p>New tool <code>workflow_next { instance? }</code> returns open, unclaimed orders whose role the calling actor may play and whose capability its host binds (MA-19) &mdash; across every active run in the instance area, or one run if named, and including the children of a parent. This is what lets a pool of gatherers drain a fan-out without anyone assigning work: each asks for the next order it is allowed to do. <code>workflow_state</code> keeps returning the whole run, with each order&rsquo;s role and claim shown.</p>
       <div class="src"><b>where</b> broker.mjs open() gains a role filter · RUN_VIEW work orders gain role, claimed_by, claimed_until</div>
     </div></div>
 
@@ -315,6 +317,22 @@
     </div></div>
   </section>
 
+    <div class="req"><span class="rid">MA-19</span><div class="rbody">
+      <h3>A work order names a capability; a host profile binds it to a tool</h3>
+      <p>Today a <code>tools</code> entry names the tool literally &mdash; <code>Bash</code>, <code>github_search_issues</code>, <code>ask_user</code>. Those are one host&rsquo;s names. <code>Bash</code> is Claude Code&rsquo;s; OpenWorker&rsquo;s shell tool is called something else, Kiro&rsquo;s something else again. So an order naming <code>Bash</code> cannot be worked by an OpenWorker session, and the same run cannot be shared across hosts &mdash; which is the whole interoperability claim.</p>
+      <p>An effect kind therefore names a <b>capability</b>, and a small per-host profile binds capability to tool name. The workflow stays portable; the binding is deployment configuration, beside the store path and the areas.</p>
+<pre><i>// workflow — portable</i>
+"tools": { "deploy_prod": { "capability": "shell", "role": "operator", "why": "…" } }
+
+<i>// host profile — deployment</i>
+{ "host": "claude-code", "bind": { "shell": "Bash", "ask_human": "AskUserQuestion" } }
+{ "host": "openworker",  "bind": { "shell": "run_command", "ask_human": "ask_user" } }</pre>
+      <p>A capability with no binding for the calling host means the order is simply not offered to that actor &mdash; the same question role filtering already asks, and the same answer: <em>can this actor do this order?</em> A workflow whose capabilities no attachable actor can satisfy is refused at admission, not discovered at 3am.</p>
+      <p>The literal <code>tool</code> field stays accepted and means &ldquo;this host only&rdquo;, so existing workflows load unchanged.</p>
+      <div class="src"><b>where</b> library.mjs _read &middot; a profile beside POLYFLOW_WORKFLOWS &middot; broker.open() filters on capability as well as role</div>
+    </div></div>
+  </section>
+
   <section>
     <div class="head">
       <div class="eyebrow">5 &middot; Requirements &mdash; claiming and leases</div>
@@ -323,7 +341,7 @@
 
     <div class="req"><span class="rid">MA-6</span><div class="rbody">
       <h3>Claim before you run</h3>
-      <p>New tool <code>workflow_claim { order_id, actor }</code>. Success returns the order with <code>claimed_until</code>. A second claim on a claimed order returns <code>claimed-by-other</code> with the holder and expiry &mdash; a result, not an error, and the model is told to call <code>workflow_next</code> instead. A role&rsquo;s <code>max_concurrent</code> is enforced here.</p>
+      <p>New tool <code>workflow_claim { order_id }</code>. Success returns the order with <code>claimed_until</code>. A second claim on a claimed order returns <code>claimed-by-other</code> with the holder and expiry &mdash; a result, not an error, and the model is told to call <code>workflow_next</code> instead. A role&rsquo;s <code>max_concurrent</code> is enforced here.</p>
       <p>The claim is stored on the polyrun outbox row: <code>claimed_until</code> already exists; this adds <code>claimed_by</code>. Nothing is in process memory that a crash would lose.</p>
       <div class="src"><b>where</b> broker.mjs · store.mjs additive column (the migration path at store.mjs:105 exists for exactly this)</div>
     </div></div>
@@ -341,7 +359,7 @@
 
     <div class="req"><span class="rid">MA-9</span><div class="rbody">
       <h3>Progress is a journaled action, not a chat message</h3>
-      <p>A long order may report progress: <code>workflow_report { order_id, actor, progress: {…} }</code> without <code>ok</code>. It renews the lease and dispatches the manifest&rsquo;s optional <code>onProgress</code> action into the machine with the payload as data. A workflow that declares no <code>onProgress</code> gets the lease renewal and a journal row of kind <code>progress</code>, and nothing else. Progress is therefore visible in <code>workflow_state</code> to every other actor, and in the journal forever.</p>
+      <p>A long order may report progress: <code>workflow_report { order_id, progress: {…} }</code> without <code>ok</code>. It renews the lease and dispatches the manifest&rsquo;s optional <code>onProgress</code> action into the machine with the payload as data. A workflow that declares no <code>onProgress</code> gets the lease renewal and a journal row of kind <code>progress</code>, and nothing else. Progress is therefore visible in <code>workflow_state</code> to every other actor, and in the journal forever.</p>
       <div class="src"><b>where</b> effects.manifest.json per-kind <code>onProgress</code> · a progress row carries no state change, like a rejected step (FR-2.5)</div>
     </div></div>
   </section>
@@ -428,6 +446,33 @@ TRIAGED: (model) => (p, { reject, next }) => {
     <div class="req"><span class="rid">MA-17</span><div class="rbody">
       <h3>Hosts are woken by events, not polled by agents</h3>
       <p>Journal fan-out (polyrun FR-7.5, M2) publishes committed rows. polyflow subscribes and emits host events: <code>order-available:{role}</code>, <code>join-opened:{instance}</code>, <code>run-terminal:{instance}</code>, <code>lease-lost:{actor}</code>. On OpenWorker these are <code>selfwake.wake_on_event</code> keys (FINDINGS-phase0: integrate with selfwake, not around it); on Kiro Crew and NeMo they are whatever the host offers, and where the host offers nothing, <code>workflow_next</code> remains the fallback. An idle gatherer wakes when a child needs it; a coordinator session wakes when the join opens.</p>
+      <p><b>Hosts differ, and the spec should not imply parity.</b> OpenWorker has <code>selfwake</code>, so a session genuinely sleeps and is re-invoked. Kiro Crew has heartbeats and schedules. Claude Code has neither: a CLI session is either inside a turn or waiting for a person, so for it the honest story is <code>workflow_next</code> at the top of a turn, and the dashboard (MA-20) is where a human sees what is waiting between turns.</p>
+    </div></div>
+  </section>
+
+    <div class="req"><span class="rid">MA-20</span><div class="rbody">
+      <h3>A dashboard at <code>localhost:PORT/dashboard</code>, for the person in the loop</h3>
+      <p>Agents pull orders. A person does not, and should not have to ask an agent what is waiting for them. The daemon serves a read view over the same snapshots and outbox rows <code>workflow_progress</code> reads (MA-15) &mdash; no module is loaded, no model is called, nothing is computed that the journal does not already contain.</p>
+      <p>It answers two questions, in that order:</p>
+      <ul>
+        <li><b>What needs me.</b> Every open order whose role is <code>kind: "human"</code>, with the run it belongs to, what it is asking, how long it has been waiting, and when its timer fires. This is the page&rsquo;s reason to exist.</li>
+        <li><b>What is happening.</b> Runs in flight with their state and their children, orders claimed and by whom, leases past due, timers armed, refused steps since the last accepted one. Terminal runs link to their rendered report (MA-16).</li>
+      </ul>
+      <p><b>Answering is a write, and writes are loopback-only.</b> A human order can be answered from the page; that dispatch is <code>verified</code> because it did not come through a model. Bound to <code>127.0.0.1</code> by default. Reachable from another machine means read-only: visibility for a remote colleague, while the approval path stays where authentication already lives &mdash; the host&rsquo;s own answer channel (MA-18).</p>
+      <p><b>Stated limit.</b> There is no authentication. The page asks for a name once and stamps it; nobody checks that the name is that person. On loopback that is the same trust as a shell on the machine. Anything stronger &mdash; an identity provider, signed approvals, per-role authorization &mdash; is an enterprise concern and is not in this spec. A deployment that needs it should not expose the write path at all.</p>
+      <div class="src"><b>where</b> the daemon&rsquo;s HTTP surface &middot; polyrun already ships a read-only UI at <code>GET /</code> (bin/polyrun-api.mjs); this is that idea with roles, claims and the human queue</div>
+    </div></div>
+
+    <div class="req"><span class="rid">MA-21</span><div class="rbody">
+      <h3>Several crews on one machine, each with its own store, port and identity</h3>
+      <p>A crew is one <b>instance area</b>: one store, one broker, one dashboard. Several on a machine is normal &mdash; two projects, a work crew and an experiment &mdash; and they must not see each other.</p>
+      <ul>
+        <li><b>The store is the boundary.</b> Two crews on one database are one crew. The daemon refuses to start on a store another live daemon holds, naming the holder rather than corrupting quietly.</li>
+        <li><b>The port is derived, not chosen.</b> A stable hash of the instance area into a fixed range, so the same crew is the same URL every day and two crews never collide. <code>--port</code> overrides; a taken port is an error, never a silent shift.</li>
+        <li><b>A registry makes them findable.</b> <code>~/.polyflow/instances.json</code> maps instance area to port, store, workflow directory, pid and start time. Written on boot, entries whose pid is gone reaped on read. It is what lets a session find its own crew without configuration, and what lets one dashboard link to the others on the machine.</li>
+      </ul>
+      <p>A person on another host reaches one crew&rsquo;s dashboard read-only, or an index that lists them. Nothing is discovered across machines: the registry is a local file, not a service.</p>
+      <div class="src"><b>where</b> the daemon&rsquo;s boot path &middot; the registry is also where MA-1&rsquo;s minted actor ids are recorded, so a dashboard can tell a live session from a dead one</div>
     </div></div>
   </section>
 
@@ -441,10 +486,10 @@ TRIAGED: (model) => (p, { reject, next }) => {
         <thead><tr><th>Tool</th><th></th><th>Change</th></tr></thead>
         <tbody>
           <tr><td><code>workflow_list</code></td><td class="tag t-ext">extended</td><td>Each workflow lists its <code>roles</code>, its <code>children</code>, and the cross-machine guarantees it was admitted under, beside the emission ones.</td></tr>
-          <tr><td><code>workflow_attach</code></td><td class="tag t-new">new</td><td><code>{actor, roles[]}</code> &rarr; the workflows this actor can take orders from. Idempotent.</td></tr>
+          <tr><td><code>workflow_attach</code></td><td class="tag t-new">new</td><td><code>{roles[]}</code> &rarr; the workflows this actor can take orders from. Idempotent.</td></tr>
           <tr><td><code>workflow_start</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>. Still derives the key; still re-attaches. The starting actor is the default addressee for role-less orders.</td></tr>
-          <tr><td><code>workflow_next</code></td><td class="tag t-new">new</td><td><code>{actor, instance?}</code> &rarr; unclaimed orders this actor may take, across the area or one run, including children.</td></tr>
-          <tr><td><code>workflow_claim</code></td><td class="tag t-new">new</td><td><code>{order_id, actor}</code> &rarr; the order with a lease, or <code>claimed-by-other</code>.</td></tr>
+          <tr><td><code>workflow_next</code></td><td class="tag t-new">new</td><td><code>{instance?}</code> &rarr; unclaimed orders this actor may take, across the area or one run, including children.</td></tr>
+          <tr><td><code>workflow_claim</code></td><td class="tag t-new">new</td><td><code>{order_id}</code> &rarr; the order with a lease, or <code>claimed-by-other</code>.</td></tr>
           <tr><td><code>workflow_report</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>; must match the claim. Accepts <code>progress</code> without <code>ok</code>.</td></tr>
           <tr><td><code>workflow_state</code></td><td class="tag t-ext">extended</td><td>Orders show <code>role</code>, <code>claimed_by</code>, <code>claimed_until</code>.</td></tr>
           <tr><td><code>workflow_progress</code></td><td class="tag t-new">new</td><td><code>{instance}</code> &rarr; the tree view (MA-15).</td></tr>
@@ -454,7 +499,7 @@ TRIAGED: (model) => (p, { reject, next }) => {
         </tbody>
       </table>
     </div>
-    <p class="note">Ten tools, not nine — <code>workflow_report_run</code> is the tenth. Read-only annotations stay as they are (<code>tools.mjs:17</code>); the four new write tools are <code>WRITE</code> with <code>idempotentHint</code> on attach and claim.</p>
+    <p class="note">Ten tools, not nine &mdash; <code>workflow_report_run</code> is the tenth. No tool takes an <code>actor</code>: the server stamps its own (MA-1), so the schemas shrink rather than grow. Read-only annotations stay as they are (<code>tools.mjs:17</code>); the four new write tools are <code>WRITE</code> with <code>idempotentHint</code> on attach and claim. Beside the tools the daemon serves the human dashboard (MA-20) &mdash; not a tool, and no agent calls it.</p>
   </section>
 
   <section>
@@ -497,9 +542,9 @@ TRIAGED: (model) => (p, { reject, next }) => {
         <div class="ph-top"><h3>C1 &mdash; hands</h3><span class="ph-when">one machine, many actors</span></div>
         <ul>
           <li><b>One broker per instance area</b> &mdash; the prerequisite for everything else. Settle the route first (&sect;0b): either the MCP server becomes a daemon with a streamable transport and the stdio binary a thin proxy, or claims and completions go through a Postgres store and stdio stays. Build the second if it holds; it keeps polyflow&rsquo;s zero-infrastructure install intact.</li>
-          <li><b>actor</b> on every write; <b>roles</b> in the descriptor; <code>workflow_attach</code>, <code>workflow_next</code>, <code>workflow_claim</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-1..4, 6..9</span></li>
+          <li><b>Server-minted actor ids</b> and the instance registry; <b>roles</b> and <b>capability binding</b> in the descriptor; <code>workflow_attach</code>, <code>workflow_next</code>, <code>workflow_claim</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-1..4, 6..9, 19, 21</span></li>
           <li><b>Journal columns</b> actor and order_id. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-14</span></li>
-          <li><b>Measure</b>: two gatherers on one run&rsquo;s multi-order step; kill one mid-order; expect one completion per order and the re-offer in the journal.</li>
+          <li><b>Measure</b>: two Claude Code CLI sessions in one project on the same run&rsquo;s multi-order step; kill one mid-order; expect one completion per order, the re-offer in the journal, and two distinct actor ids neither session chose.</li>
         </ul>
       </div>
       <div class="phase">
@@ -507,7 +552,7 @@ TRIAGED: (model) => (p, { reject, next }) => {
         <ul>
           <li><b>children</b> in the descriptor with derived keys; the broker serves children&rsquo;s orders under the parent&rsquo;s area. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-5, 10, 12</span></li>
           <li><b>The gate grows two checks</b>: waiting states arm timers; <code>check-product</code> over <code>invariants.compose.mjs</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-11, 13</span></li>
-          <li><b><code>workflow_progress</code></b>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-15</span></li>
+          <li><b><code>workflow_progress</code></b> and the <b>dashboard</b> &mdash; loopback-writable, read-only beyond it. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-15, 20</span></li>
           <li><b>Measure</b>: <code>customer-brief-crew</code>, n=8, three gatherers, one killed; and its refused twin with the deadline removed.</li>
         </ul>
       </div>
@@ -524,7 +569,7 @@ TRIAGED: (model) => (p, { reject, next }) => {
   </section>
 
   <footer>
-    polycrew specification &middot; draft 2 &middot; 26 August 2026 &middot; Cognitive Fab LLC &middot; grounded in polyflow <code>src/</code> at HEAD and polyrun FR-1&ndash;FR-8
+    polycrew specification &middot; draft 3 &middot; 26 August 2026 &middot; Cognitive Fab LLC &middot; grounded in polyflow <code>src/</code> at HEAD and polyrun FR-1&ndash;FR-8
   </footer>
 
 </div>
