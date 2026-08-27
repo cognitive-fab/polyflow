@@ -28,6 +28,7 @@ class RecordingBroker {
     this.waiting = new Map();
     this.heartbeatMs = heartbeatMs;
     this.renewals = 0;
+    this.reporters = [];
   }
 
   handler(kind, spec = {}) {
@@ -61,7 +62,8 @@ class RecordingBroker {
     return [...this.all.values()].filter((o) => o.instanceId === instanceId);
   }
 
-  report(orderId, { ok = true, result = {}, error = '', permanent = false } = {}) {
+  report(orderId, { ok = true, result = {}, error = '', permanent = false, actor } = {}) {
+    this.reporters.push(actor ?? null);
     const w = this.waiting.get(orderId);
     if (!this.all.has(orderId)) return { ok: false, reason: 'unknown-order' };
     if (!w) return { ok: false, reason: 'order-expired' };
@@ -229,4 +231,36 @@ test('two extra tools colliding blame each other, not a built-in', async (t) => 
   const twice = [{ name: 'workflow_claim' }, { name: 'workflow_claim' }];
   assert.throws(() => makeTools(pf, twice), /collides with another extra tool/,
     'blaming a built-in sends the reader hunting for one that is not there');
+});
+
+test('the reporting actor rides beside the arguments, never inside them', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-actor-'));
+  const broker = new RecordingBroker();
+  const pf = new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'actor.sqlite'),
+    agent: 'polycrew', instance: 'acme', pollMs: 20, broker,
+  });
+  await pf.start();
+  t.after(async () => {
+    await pf.close();
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ }
+  });
+
+  const tools = makeTools(pf);
+  const report = tools.find((x) => x.name === 'workflow_report');
+
+  // No schema field names the reporter — a model that could name it could
+  // report as someone else, which is the derived-key finding one level up.
+  assert.ok(!Object.keys(report.inputSchema.properties).includes('actor'));
+
+  let v = await tools.find((x) => x.name === 'workflow_start')
+    .handler({ workflow: 'customer-brief', input: { date: '2026-08-29' } });
+
+  // A host that knows who is calling passes it as the second argument.
+  v = await report.handler({ order_id: v.next[0].order_id, result: { count: 1 } }, 'claude-code/aaaa');
+  assert.deepEqual(broker.reporters, ['claude-code/aaaa'], 'the broker can enforce a claim with this');
+
+  // And the single-agent path still reports with nobody named.
+  await report.handler({ order_id: v.next[0].order_id, result: {} });
+  assert.deepEqual(broker.reporters, ['claude-code/aaaa', null]);
 });

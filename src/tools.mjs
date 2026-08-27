@@ -34,6 +34,11 @@ const WORK_ORDER = {
     args: { type: 'object', description: 'arguments for the call' },
     why: { type: 'string', description: 'why this step exists' },
     attempt: { type: 'number', description: '1 on the first offer, higher after a retry' },
+    // Present only when more than one actor can reach the run. A single-agent
+    // run leaves all three absent, so its work orders read exactly as before.
+    role: { type: 'string', description: 'the kind of participant this order is addressed to' },
+    claimed_by: { type: 'string', description: 'the actor holding this order; absent means nobody' },
+    claimed_until: { type: 'number', description: 'when that claim lapses if it is not renewed' },
   },
 };
 
@@ -82,6 +87,9 @@ export function makeTools(pf, extra = []) {
         args: o.args,
         why: o.why,
         attempt: o.attempt,
+        role: o.role,
+        claimed_by: o.claimedBy,
+        claimed_until: o.claimedUntil,
       })),
       waiting: !v.done && v.orders.length === 0
         ? 'nothing to do right now — the run is waiting on a timer. Re-attach later.'
@@ -178,11 +186,15 @@ export function makeTools(pf, extra = []) {
           permanent: { type: 'boolean', description: 'true if this failure is a result, not a fault' },
         },
       },
-      handler: async ({ order_id, ok = true, result = {}, error = '', permanent = false }) => {
+      // `actor` is the second argument, never a schema field: a model that
+      // could name the reporter could report as someone else. The host that
+      // knows who is calling supplies it (polycrew does); on the single-agent
+      // path it is undefined and the broker accepts an unclaimed order.
+      handler: async ({ order_id, ok = true, result = {}, error = '', permanent = false }, actor) => {
         const order = pf.broker.orderById(order_id);
         if (!order) return { error: `unknown order '${order_id}'` };
         const before = (await pf.view(order.instanceId)).seq;
-        const ack = pf.report(order_id, { ok, result, error, permanent });
+        const ack = pf.report(order_id, { ok, result, error, permanent, actor });
         if (!ack.ok) return { error: ack.reason, hint: ack.hint };
         return runView(order.instanceId, before);
       },
