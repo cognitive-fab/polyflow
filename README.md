@@ -13,6 +13,13 @@ core.
 > check, not a proof**, and "exhaustive" always means exhaustive over the
 > finite domain the contract declares. Every finding is a lead, not a result.
 
+polyflow is the single-participant engine: one process, one broker in memory,
+stdio, SQLite, nothing to install. For **several sessions or several people
+working one run at the same time** — a shared broker, orders they claim, and a
+page a person can watch — see
+[polycrew](https://github.com/cognitive-fab/polycrew), which uses polyflow as a
+library and adds two tools to these six.
+
 ## What it is for
 
 Work that repeats, outlives one session, and ends in something you cannot take
