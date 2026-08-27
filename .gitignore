@@ -3,4 +3,9 @@
 .polyflow/
 node_modules/
 spike/
-docs/linkedin-polycrew-post.md
+
+# Posts and drafts. The design docs in docs/ stay — polycrew's README links to
+# polycrew-spec.html and polycrew-c0-plan.md.
+docs/linkedin-*
+docs/x-post-*
+docs/agent-driven-cicd.html
