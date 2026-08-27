@@ -71,7 +71,13 @@ hold.
       — concurrent sessions would lose entries to read-modify-write with no
       error anywhere. Dead pids and torn files reaped on read. `portFor(area)`
       derives the broker port. 11 tests.
-- [ ] 3 — the order store
+- [x] **3 — the order store.** `StoreBroker` satisfies the contract with
+      orders in SQLite, and adds `offers`, `claim`, `renew`, `sweep`. Two
+      leases kept apart: polyrun's worker lease on the effect, the actor's
+      claim on the order. 14 unit tests on a fake clock cover claim
+      arbitration, lapse-and-re-offer, report-after-losing-the-lease,
+      double-settle, role refusal, and a polyrun re-offer arriving as the same
+      order at a higher attempt. 25 tests in polycrew.
 - [ ] 4 — election and proxy
 - [ ] 5 — the crew tools
 - [ ] 6 — actor attribution
