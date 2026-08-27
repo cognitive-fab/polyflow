@@ -20,7 +20,7 @@ const OPEN = 'open';
  * convenience:
  *
  *   handler(kind, spec)     a polyrun handler for that effect kind
- *   open(instanceId)        the open work orders for one run
+ *   open(instanceId, opts)  the open work orders for one run
  *   orderById(orderId)      one order, whatever its status, or undefined
  *   issued(instanceId)      every order ever issued for one run
  *   report(orderId, result) resolve or reject the parked handler
@@ -41,7 +41,20 @@ const OPEN = 'open';
  *      be the same projection `open()` returns — that one drops `instanceId`
  *      deliberately, because the caller already knows the run.
  *
- *   3. `report` MUST resolve with an OBJECT. The resolved value becomes the
+ *   3. `open` MUST be a pure read under `{ sweep: false }`, and its rows MUST
+ *      carry `role`, `claimedBy` and `claimedUntil` beside the obvious fields:
+ *      the run view and the crew's page both show them, and a substitute that
+ *      omits them renders a busy run as if nobody held anything. `view()`
+ *      always asks for the pure read, because `workflow_state` is annotated
+ *      read-only and a broker repairing anything there would make it a tool
+ *      that writes while advertising that it does not.
+ *
+ *   4. `report` and `abort` are AWAITED. Settling synchronously is fine and
+ *      returning a promise is fine; what is not fine is a substitute whose
+ *      caller reads `.ok` off an unawaited promise, which answers `{}` to
+ *      every report while the run advances behind it.
+ *
+ *   5. `report` MUST resolve with an OBJECT. The resolved value becomes the
  *      completion action's data, and an action whose data is a bare string has
  *      no fields for the machine to read. Wrap a non-object as `{ value }`.
  *

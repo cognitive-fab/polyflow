@@ -57,3 +57,36 @@ test('a workflow whose descriptor disagrees with its directory is refused', (t) 
   assert.throws(() => new Library(dir).load(),
     /workflow in 'brief-a\/' calls itself 'something-else'/);
 });
+
+test('specs differing only in a field this code does not know about are still refused', async (t) => {
+  // Descriptors are carried through unvalidated, so the guard cannot be a list
+  // of the three fields that happen to exist today: the moment a spec grows a
+  // fourth, a partial compare calls two different specs identical and hands
+  // runs of one workflow the other's work orders.
+  const dir = library(t, {
+    'brief-a': (d) => d,
+    'brief-b': (d) => ({
+      ...d,
+      tools: { ...d.tools, draft_brief: { ...d.tools.draft_brief, role: 'reviewer' } },
+    }),
+  });
+  const pf = new Polyflow({ workflowsDir: dir, dbPath: join(dir, 'z.sqlite'), pollMs: 20 });
+  await assert.rejects(() => pf.start(), /effect 'draft_brief' is declared differently/);
+});
+
+test('the same spec written in a different key order is the same spec', async (t) => {
+  const dir = library(t, {
+    'brief-a': (d) => ({
+      ...d,
+      tools: { ...d.tools, draft_brief: { tool: 'ask', why: 'draft the brief from the gathered tickets' } },
+    }),
+    'brief-b': (d) => ({
+      ...d,
+      tools: { ...d.tools, draft_brief: { why: 'draft the brief from the gathered tickets', tool: 'ask' } },
+    }),
+  });
+  const pf = new Polyflow({ workflowsDir: dir, dbPath: join(dir, 'w.sqlite'), pollMs: 20 });
+  t.after(() => pf.close());
+  await pf.start();
+  assert.equal(pf.library.workflows.size, 2, 'key order is not a difference');
+});

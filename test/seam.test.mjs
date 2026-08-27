@@ -316,3 +316,110 @@ test('runs() lists this area and no other, and timers() what it waits on', async
   assert.ok(timers[0].fireAt > Date.now(), 'and when it runs out');
   assert.deepEqual(await pf.timers('polycrew|acme|customer-brief|2026-12-02'), []);
 });
+
+test('a broker whose report answers asynchronously still gets a view', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-async-'));
+  const broker = new RecordingBroker();
+  const inner = broker.report.bind(broker);
+  // Nothing in the contract makes report synchronous, so a substitute may
+  // answer with a promise. Reading .ok off it would report every failure as a
+  // success and answer {} to every call.
+  broker.report = (...args) => Promise.resolve(inner(...args));
+
+  const pf = new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'async.sqlite'),
+    agent: 'polycrew', instance: 'acme', pollMs: 20, broker,
+  });
+  await pf.start();
+  t.after(async () => {
+    await pf.close();
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ }
+  });
+
+  const tools = makeTools(pf);
+  const call = (n, a) => tools.find((x) => x.name === n).handler(a);
+  let v = await call('workflow_start', { workflow: 'customer-brief', input: { date: '2027-02-01' } });
+  v = await call('workflow_report', { order_id: v.next[0].order_id, result: { count: 4 } });
+  assert.equal(v.state.briefState, 'drafting', 'the run moved and the caller was told');
+  assert.equal(v.error, undefined);
+
+  // And a refusal still reads as a refusal rather than as an empty object.
+  const bad = await call('workflow_report', { order_id: 'no-such-order', result: {} });
+  assert.match(bad.error, /unknown order/);
+});
+
+test('reading a run never repairs it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-pureread-'));
+  const broker = new RecordingBroker();
+  const asked = [];
+  const inner = broker.open.bind(broker);
+  broker.open = (id, opts) => { asked.push(opts); return inner(id, opts); };
+
+  const pf = new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'pure.sqlite'),
+    agent: 'polycrew', instance: 'acme', pollMs: 20, broker,
+  });
+  await pf.start();
+  t.after(async () => {
+    await pf.close();
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ }
+  });
+
+  const tools = makeTools(pf);
+  const v = await tools.find((x) => x.name === 'workflow_start')
+    .handler({ workflow: 'customer-brief', input: { date: '2027-02-02' } });
+  await tools.find((x) => x.name === 'workflow_state').handler({ instance: v.instance });
+
+  assert.ok(asked.length > 0);
+  for (const opts of asked) {
+    assert.deepEqual(opts, { sweep: false },
+      'workflow_state says readOnlyHint; a broker sweeping here would make it a writer');
+  }
+});
+
+test('a closed Polyflow lets go of its broker', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-reuse-'));
+  t.after(() => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ } });
+  const broker = new Broker();
+  const make = () => new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'reuse.sqlite'), pollMs: 20, broker,
+  });
+
+  // Never started, so nothing was ever owned in practice.
+  const stillborn = make();
+  await stillborn.close();
+  const first = make();
+  await first.start();
+  await first.close();
+
+  // A re-election in one process hands the same broker to a replacement.
+  const second = make();
+  await second.start();
+  t.after(() => second.close());
+  assert.equal(second.certificates.size > 0, true, 'the replacement really started');
+});
+
+test('a run in flight is still shown when its workflow stops being admitted', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'polyflow-degraded-'));
+  const pf = new Polyflow({
+    workflowsDir: WORKFLOWS, dbPath: join(dir, 'deg.sqlite'),
+    agent: 'polycrew', instance: 'acme', pollMs: 20, broker: new RecordingBroker(),
+  });
+  await pf.start();
+  t.after(async () => {
+    await pf.close();
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* windows locks */ }
+  });
+
+  await makeTools(pf).find((x) => x.name === 'workflow_start')
+    .handler({ workflow: 'customer-brief', input: { date: '2027-02-03' } });
+  assert.equal((await pf.runs({ status: 'active' }))[0].admitted, true);
+
+  // The library was edited and no longer passes the gate. The run is still in
+  // flight with an open order waiting on someone; hiding it is the opposite of
+  // what a "what needs a person" view is for.
+  pf.admitted = () => false;
+  const runs = await pf.runs({ status: 'active' });
+  assert.equal(runs.length, 1, 'a degraded library must not empty the dashboard');
+  assert.equal(runs[0].admitted, false, 'and the page can say so');
+});

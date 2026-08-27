@@ -69,10 +69,10 @@ const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v 
  * claiming and the crew view — without forking this file or the server.
  */
 export function makeTools(pf, extra = []) {
-  const view = async (instanceId, sinceSeq) => {
+  const view = async (instanceId, sinceSeq, actionId = null) => {
     const v = sinceSeq === undefined
       ? await pf.view(instanceId)
-      : await pf.settle(instanceId, { sinceSeq });
+      : await pf.settle(instanceId, { sinceSeq, actionId });
     return {
       instance: v.instanceId,
       workflow: v.workflow,
@@ -195,9 +195,20 @@ export function makeTools(pf, extra = []) {
         const order = pf.broker.orderById(order_id);
         if (!order) return { error: `unknown order '${order_id}'` };
         const before = (await pf.view(order.instanceId)).seq;
-        const ack = pf.report(order_id, { ok, result, error, permanent, actor });
+        // Awaited: a store-backed broker may answer asynchronously, and
+        // reading .ok off a promise would report every failure as a success.
+        const ack = await pf.report(order_id, { ok, result, error, permanent, actor });
         if (!ack.ok) return { error: ack.reason, hint: ack.hint };
-        return runView(order.instanceId, before);
+        // Wait for THIS report's own step, not merely for the run to move:
+        // with two actors on one run, someone else's completion can arrive
+        // first and the view would describe their work rather than this call's.
+        //
+        // Only on success. A failure has three possible outcomes and two of
+        // them journal nothing to wait for: a permanent one dispatches
+        // `:failed`, an exhausted one `:exhausted`, and an ordinary one
+        // schedules a RETRY that writes no row at all. Waiting for a step that
+        // is never coming would stall every retry for the full timeout.
+        return runView(order.instanceId, before, ok ? `${order_id}:done` : null);
       },
     },
     {

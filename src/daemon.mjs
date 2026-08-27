@@ -10,11 +10,17 @@ import { Library, deriveKey } from './library.mjs';
 import { Broker } from './broker.mjs';
 import { Area } from './areas.mjs';
 
-/** Two effect specs a library may share a kind under. Order-insensitive. */
-const sameSpec = (a = {}, b = {}) =>
-  (a.tool ?? null) === (b.tool ?? null)
-  && (a.target ?? null) === (b.target ?? null)
-  && (a.why ?? '') === (b.why ?? '');
+/**
+ * Two effect specs a library may share a kind under. A WHOLE-object compare,
+ * key order aside: descriptors are carried through unvalidated, so the moment a
+ * spec grows a field this does not know about, a three-field comparison would
+ * call two different specs identical and hand runs of one workflow the other's
+ * work orders - the exact silent-wrong-answer the caller exists to refuse.
+ */
+const canon = (v) => (v === null || typeof v !== 'object' ? v
+  : Array.isArray(v) ? v.map(canon)
+    : Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])));
+const sameSpec = (a = {}, b = {}) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
 /** Marks the daemon that owns a broker, so a second one cannot share it. */
 const OWNER = Symbol.for('polyflow.brokerOwner');
@@ -143,7 +149,10 @@ export class Polyflow {
   /** State + open work orders. The agent's only view of the run. */
   async view(instanceId) {
     const { state, status, seq, machineId } = await this.rt.getState(instanceId);
-    const orders = this.broker.open(instanceId);
+    // The pure read. workflow_state is annotated read-only, and a broker that
+    // released lapsed claims here would quietly make it a writer. The writers
+    // - claim, report, and the crew's offer list - do that repair.
+    const orders = this.broker.open(instanceId, { sweep: false });
     return {
       instanceId, workflow: machineId, status, seq, state,
       orders,
@@ -168,11 +177,20 @@ export class Polyflow {
    * Returns as soon as the journal advances past `sinceSeq` AND either an order
    * is open or the instance is terminal.
    */
-  async settle(instanceId, { sinceSeq = -1, timeoutMs = 5000, stepMs = 25 } = {}) {
+  async settle(instanceId, { sinceSeq = -1, actionId = null, timeoutMs = 5000, stepMs = 25 } = {}) {
     const deadline = Date.now() + timeoutMs;
+    // A bare seq watermark stops being enough once two actors share a run:
+    // another session's completion can push the seq past it while this
+    // caller's own step is still landing, and the view returned would be
+    // about someone else's work. When the caller knows which step it is
+    // waiting for, wait for THAT one.
+    const landed = async () => (actionId
+      ? Boolean(await this.rt.store.getJournalByActionId(instanceId, actionId))
+      : true);
+
     let view = await this.view(instanceId);
     while (Date.now() < deadline) {
-      if (view.seq > sinceSeq && (view.orders.length > 0 || view.done)) return view;
+      if (view.seq > sinceSeq && (view.orders.length > 0 || view.done) && await landed()) return view;
       await new Promise((r) => setTimeout(r, stepMs));
       view = await this.view(instanceId);
     }
@@ -196,7 +214,11 @@ export class Polyflow {
     const mine = `${this.area}|`;
     const out = [];
     for (const name of this.library.workflows.keys()) {
-      if (!this.admitted(name)) continue;
+      // NOT filtered by admission. A workflow edited until it fails the gate
+      // cannot be STARTED any more, but its runs are still in flight with open
+      // orders waiting on people, and hiding them is the opposite of what a
+      // "what needs a person" view is for. They are marked instead.
+      const admitted = this.admitted(name);
       for (const r of await this.rt.store.listInstances(name, status)) {
         if (!String(r.instance_id).startsWith(mine)) continue;
         out.push({
@@ -207,6 +229,7 @@ export class Polyflow {
           state: r.state,
           seq: r.seq,
           updatedAt: r.updated_at ?? null,
+          admitted,
           done: r.status !== 'active' || this._isTerminal(name, r.state),
         });
       }
@@ -228,8 +251,12 @@ export class Polyflow {
   /** Clean shutdown. A real crash skips all of this — the lease is what makes
    *  either path recoverable, so `drainMs` only reduces log noise. */
   async close({ drainMs = 50 } = {}) {
+    // Released even when start() never ran, so a replacement Polyflow - an
+    // in-process re-election, a restart after a library reload - can take the
+    // same broker. The claim guards against two LIVE owners, not against reuse.
+    if (this.broker?.[OWNER] === this) delete this.broker[OWNER];
     if (!this.rt) return;
-    this.broker.abort();
+    await this.broker.abort();
     if (drainMs) await new Promise((r) => setTimeout(r, drainMs));
     await this.rt.stopWorkers();
     await this.rt.close?.();
