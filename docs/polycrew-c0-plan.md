@@ -111,6 +111,21 @@ hold.
       loopback hop, so it wins every race for the first offer and a proxy that
       gives up after one refusal starves. The safety property never failed —
       no order was ever completed twice. 37 tests.
-- [ ] 6 — actor attribution
+- [x] **6 — actor attribution.** `pf_actors` in polycrew's own store, joined
+      onto the journal on read — polyrun's schema is untouched, as decided. The
+      rule throughout: an actor is recorded by the call that CAUSED the step,
+      never inferred afterwards from the newest journal row, which with two
+      sessions on one crew names whoever read last. Each call keys its record
+      by something it already knows — `$create` for a start, `<orderId>:done`
+      for a report (derived, so known before the step exists), and the seq the
+      call returned for a signal, whose action id is a uuid the kernel mints.
+      A timer reads `system/timer` and a child completion `system/child:<id>`;
+      anything else reads `unattributed`, because a wrong name in an audit
+      trail is worse than a missing one. polyflow gained two small things it
+      wanted anyway: `workflow_signal` returns the seq its call became
+      (v0.3.1), and the journal carries `action_id` (v0.3.2) — the engine's
+      dedupe key, and part of a trace corpus. 7 tests, including a real timer
+      firing against a copy of the demo workflow with a 300 ms approval window.
+      44 tests.
 - [ ] 7 — the dashboard
 - [ ] 8 — acceptance
