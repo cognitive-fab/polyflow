@@ -58,7 +58,11 @@ const RUN_VIEW = obj({
 /** Drop null and undefined fields: absent is representable in the schema subset, null is not. */
 const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));
 
-export function makeTools(pf) {
+/**
+ * The six tools. `extra` lets a layer above add its own — polycrew appends
+ * claiming and the crew view — without forking this file or the server.
+ */
+export function makeTools(pf, extra = []) {
   const view = async (instanceId, sinceSeq) => {
     const v = sinceSeq === undefined
       ? await pf.view(instanceId)
@@ -90,7 +94,7 @@ export function makeTools(pf) {
   };
   const runView = async (...args) => compact(await view(...args));
 
-  return [
+  const tools = [
     {
       name: 'workflow_list',
       outputSchema: obj({
@@ -175,7 +179,7 @@ export function makeTools(pf) {
         },
       },
       handler: async ({ order_id, ok = true, result = {}, error = '', permanent = false }) => {
-        const order = pf.broker.orders.get(order_id);
+        const order = pf.broker.orderById(order_id);
         if (!order) return { error: `unknown order '${order_id}'` };
         const before = (await pf.view(order.instanceId)).seq;
         const ack = pf.report(order_id, { ok, result, error, permanent });
@@ -252,4 +256,11 @@ export function makeTools(pf) {
       }),
     },
   ];
+
+  const names = new Set(tools.map((t) => t.name));
+  for (const t of extra) {
+    if (names.has(t.name)) throw new Error(`extra tool '${t.name}' collides with a built-in`);
+    names.add(t.name);
+  }
+  return [...tools, ...extra];
 }

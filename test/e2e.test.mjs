@@ -129,7 +129,7 @@ test('a denial is a result, not a fault — and no post is ever ordered', async 
 
   const { journal } = await call('workflow_journal', { instance: v.instance });
   assert.ok(!journal.some((r) => r.action === 'POST_DONE'));
-  const ordered = [...pf.broker.orders.values()].filter((o) => o.instanceId === v.instance);
+  const ordered = pf.broker.issued(v.instance);
   assert.ok(!ordered.some((o) => o.kind === 'post_brief'), 'no post order may exist on a denied run');
 });
 

@@ -18,10 +18,13 @@ export class Polyflow {
     instance = 'default',
     leaseMs = 5 * 60_000,
     pollMs = 100,
+    // polycrew supplies a store-backed broker shared across processes; the
+    // default one keeps its parked handlers in this process's memory.
+    broker = new Broker(),
   } = {}) {
     this.area = new Area({ agent, instance });
     this.library = new Library(workflowsDir);
-    this.broker = new Broker();
+    this.broker = broker;
     this.dbPath = dbPath;
     this.leaseMs = leaseMs;
     this.pollMs = pollMs;

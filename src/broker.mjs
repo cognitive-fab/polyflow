@@ -13,6 +13,19 @@
 
 const OPEN = 'open';
 
+/**
+ * The broker contract, so a different one can be swapped in (polycrew's is
+ * store-backed, shared across processes). Anything outside this file that
+ * reaches into a broker's internals is a bug in this interface, not a
+ * convenience:
+ *
+ *   handler(kind, spec)     a polyrun handler for that effect kind
+ *   open(instanceId)        the open work orders for one run
+ *   orderById(orderId)      one order, whatever its status, or undefined
+ *   issued(instanceId)      every order ever issued for one run
+ *   report(orderId, result) resolve or reject the parked handler
+ *   abort(reason)           fail every parked handler, for shutdown
+ */
 export class Broker {
   constructor({ heartbeatMs = 60_000 } = {}) {
     this.heartbeatMs = heartbeatMs;
@@ -46,6 +59,14 @@ export class Broker {
       if (typeof timer.unref === 'function') timer.unref();
       this.pending.set(order.orderId, { resolve, reject, timer });
     });
+  }
+
+  /** One order by id, whatever its status. */
+  orderById(orderId) { return this.orders.get(orderId); }
+
+  /** Every order ever issued for one instance — introspection, not routing. */
+  issued(instanceId) {
+    return [...this.orders.values()].filter((o) => o.instanceId === instanceId);
   }
 
   /** Open work orders for one instance — what the agent must do next. */
