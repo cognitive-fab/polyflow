@@ -94,7 +94,23 @@ hold.
       crossing the seam, two sessions deriving one run through it, a SIGKILLed
       broker succeeded by exactly one proxy with the run and its open orders
       intact, and a failed tool that must not read as an election. 30 tests.
-- [ ] 5 — the crew tools
+- [x] **5 — the crew tools.** `workflow_next { instance? }` offers open,
+      unclaimed orders whose role this session may play, across every run in
+      the crew or one named run; `workflow_claim { order_id }` takes one.
+      Neither takes an actor — polyflow's `workflow_report` now receives it as
+      a second argument beside the arguments, never as a schema field, and the
+      run view gained `role`, `claimed_by`, `claimed_until` (absent on a
+      single-agent run, so nothing reads differently there). A refused claim is
+      a *result*: `claimed: false` with the holder and a hint to call
+      `workflow_next`, because two sessions reaching for one order is the
+      ordinary case, and a model that receives an error retries while a model
+      that receives an answer goes elsewhere. 7 tests with two real processes.
+      The first version of the drain test alternated the sessions and passed
+      whether or not the claim did anything; run concurrently it flaked, and
+      the cause was worth keeping: the elected broker serves itself with no
+      loopback hop, so it wins every race for the first offer and a proxy that
+      gives up after one refusal starves. The safety property never failed —
+      no order was ever completed twice. 37 tests.
 - [ ] 6 — actor attribution
 - [ ] 7 — the dashboard
 - [ ] 8 — acceptance
