@@ -50,6 +50,33 @@ the same as a publish.
 45% is a lead, not a result. §5.1 makes correcting it the user's first action
 rather than a support ticket.
 
+### 1.1 The same corpus, one project at a time
+
+polyness runs per project, so the pooled number above is the wrong unit. Each of
+the 53 journal directories was re-measured as its own corpus, which is what a
+single user with a single repository actually has.
+
+| | of 32 projects with tool calls |
+|---|---|
+| yield a recurring **shape** (same 3-4 step sequence, 3+ times) | **1 (3%)** |
+| contain a push or publish at all | 15 |
+| contain an **unverified** push | **7 (22%)** |
+
+Even in the busiest band - projects with more than 1,500 tool calls - only 1 of 7
+yielded a shape. Seventeen of the 32 projects have fewer than 200 calls and will
+show nothing under any design.
+
+This is the most important measurement in this document, and it changes the
+design. **Sequence mining does not survive at the scale a real user has.** A push
+happens ten or fourteen times in an active project, but the exact three-step
+window around it differs every time, so requiring an identical normalised
+sequence three times over is a filter almost nothing passes.
+
+The rule never needed the sequence. "No push without a passing verification" is
+answerable from the pushes alone. §4.4 is written accordingly: **rules are mined
+over consequential events, not over shapes.** Seven projects in twenty-two
+percent beats one in three.
+
 ---
 
 ## 2. Goal, and what v0 is for
@@ -58,15 +85,19 @@ The goal is **identify repeatable workflows and run them as such in a given
 situation.** Three verbs, in order:
 
 1. **Audit** — show what you repeat and where the repetition already goes wrong.
-2. **Propose** — turn a recurring shape into a workflow with rules, and put it
-   through polyflow's admission gate. A proposal that fails the gate is refused,
-   not flagged.
+2. **Propose** — turn a step you keep taking into a workflow with the rules your
+   own history implies, and put it through polyflow's admission gate. A proposal
+   that fails the gate is refused, not flagged.
 3. **Recognise** — when a session starts doing something a workflow covers, say
    so and offer to start the run.
 
 v0 ships all three, narrowly. Audit works on the journal that exists today with
-nothing installed. Propose emits one candidate. Recognise suggests and never
-acts.
+nothing installed. Propose emits a candidate for one subject. Recognise suggests
+and never acts.
+
+The weight is not evenly spread, and §1.1 is why. Audit finds something in 22% of
+projects; proposal follows from the same rules rather than from a second mining
+pass. **Audit is the product. Propose and recognise are what it is for.**
 
 ### Out of scope for v0
 
@@ -91,18 +122,31 @@ repetition is missing its own guard.
 ```
 $ polyness audit
 
-  53 projects · 414 sessions · 150 with tool calls · 28,382 calls
+  code-kanjo · 8 sessions · 1,665 tool calls
 
-  Repeated shapes ending in something you cannot take back
+  git push          7 times
+    ⚠ 7 of 7 had no passing verification before them
+      polyness audit --show git-push        the 7, with what came before each
+      polyness audit --correct git-push     if that is wrong for this project
 
-    git add → git commit → git push            6 projects   41 times
-      ⚠ 35 of 77 pushes had no passing test before them
-         kanjo 13 · baanbaan-Merchant 7 · cognitive-fab 4 · glm 3 · …
-         polyness audit --show unverified-push   to see them
+  git commit       23 times
+    ✓ always preceded by a stage         23/23
+    ✓ never twice in one episode         23/23
 
-    npm test → git add → git push              3 projects   12 times
+  1 step is worth proposing as a workflow.   polyness propose git-push
+```
 
-  1 shape is worth proposing as a workflow.   polyness propose
+Run without a project it summarises every journal it can find, and reports the
+per-project breakdown rather than a pooled number — a finding that only exists
+when 53 projects are added together is not a finding a user can act on.
+
+Below the support floor it says so and stops:
+
+```
+  code-cartograph · 2 sessions · 41 tool calls
+
+  Not enough history yet. 1 push, and a rule needs at least 5 to mean
+  anything. Come back after a few more sessions.
 ```
 
 `--show <finding>` lists the underlying steps: project, session, timestamp, the
@@ -114,20 +158,22 @@ not believe the next one.
 project's real verification command. Corrections are stored per project (§4.5)
 and every later number reflects them.
 
-### 3.2 `polyness propose <shape>`
+### 3.2 `polyness propose <subject>`
 
-Turns a shape into a workflow proposal.
+Turns a step you keep taking into a workflow proposal. The subject is the
+consequential step; the steps around it are read off the majority path and are
+there to name the thing, not to justify it.
 
 ```
-$ polyness propose "git add → git commit → git push"
+$ polyness propose git-push
 
-  From 41 runs across 6 projects.
+  From 7 pushes in this project. Lead-in taken from the 5 that share one.
 
-  Steps          stage → commit → push
+  Steps          verify → stage → commit → push
   Rules          derived from your history, and how it would have gone:
-                   no-push-without-a-passing-verify     would have stopped 35 of 77
-                   at-most-one-push-per-run             never violated (77/77)
-                   commit-implies-a-prior-stage         never violated (41/41)
+                   no-push-without-a-passing-verify     would have stopped 7 of 7
+                   at-most-one-push-per-run             never violated (7/7)
+                   commit-implies-a-prior-stage         never violated (23/23)
 
   Written to     .polyness/proposals/verified-push/
                    contract.json          the states, actions and their domain
@@ -140,10 +186,14 @@ $ polyness propose "git add → git commit → git push"
     polyflow admit .polyness/proposals/verified-push
 ```
 
-A rule is only proposed when the history supports it (§4.4). Each is printed
-with its own counter-evidence, because a rule that your own history violates
-half the time is a decision, not a discovery — and the person reading has to
-make it.
+A rule is only proposed when the history supports it (§4.4). Each is printed with
+its own counter-evidence, because a rule your own history violates half the time
+is a decision, not a discovery — and the person reading has to make it.
+
+Note the first rule above: the proposed workflow puts verification *before* the
+push, which is what 0 of these 7 runs actually did. A proposal is not a
+description of what you do. It is what the rest of your history says you meant
+to.
 
 ### 3.3 `polyness watch`
 
@@ -257,19 +307,29 @@ by what they were *for* rather than by which commands they used.
 
 ### 4.4 Mining and rule synthesis
 
-**Shapes.** Within an episode, immediate repeats collapse (`Read Read Read` is
-`Read`). A shape is a window of 3–5 consecutive kinds. A shape is a *candidate*
-when it occurs in ≥ 3 distinct projects and ends in a step matching the
-consequential set: `git push`, `git commit`, `git tag`, `npm publish`,
-`gh pr create`, `gh release`, `docker push`, plus per-project additions.
+**The unit is a consequential event, not a sequence.** §1.1 measured why: an
+identical 3-4 step window recurs in 3% of projects, while a consequential event
+recurs in 47% and misbehaves in 22%. Mining sequences asks for a coincidence;
+mining events asks only that the user has done the thing more than once.
+
+A *subject* is a normalised kind in the consequential set - `git push`,
+`git commit`, `git tag`, `npm publish`, `gh pr create`, `gh release`,
+`docker push`, plus per-project additions - occurring at least **five times** in
+the project. Below that the support is too thin for a rule to mean anything, and
+the audit says "not enough history yet" rather than inventing a finding.
 
 Consequence is the filter that makes this tractable. Everything recurs; only some
 of it is worth a gate.
 
-**Ranking is by regret**, not frequency: how often the shape ran *without* the
-guard the rest of its instances had. A shape that is always done correctly is not
-worth a workflow. The one in §1 ranks first because 45% of its instances skipped
+**Ranking is by regret**, not frequency: how often the subject occurred *without*
+the guard its other instances had. A step that is always done correctly is not
+worth a workflow. Verified-push ranks first because 45% of its instances skipped
 verification.
+
+**Shapes are still computed, but only for display.** Once a rule is worth
+proposing, the majority path leading into the subject names the proposal and
+gives it its steps. A subject whose lead-in never repeats simply yields a
+proposal of one step and a rule, which is still a workflow worth admitting.
 
 **Rules.** Candidates are drawn from a fixed vocabulary that maps one-to-one onto
 polyflow's effect-invariant predicates — the same `path.count`, `path.emitted`,
@@ -280,7 +340,10 @@ polyflow's effect-invariant predicates — the same `path.count`, `path.emitted`
 | `at-most-one-<C>-per-run` | C never occurs twice in any episode | `path.count(C) <= 1` |
 | `no-<C>-without-a-prior-<V>` | V precedes C in ≥ 40% of instances and C is consequential | `path.emitted.every(e => e.kind !== C \|\| path.emitted.some(v => v.kind === V && v.step < e.step))` |
 | `<C>-implies-a-prior-<S>` | S precedes C in ≥ 90% of instances | as above |
-| `exactly-one-<S>-when-started` | S occurs exactly once in ≥ 90% of episodes | `started ? n === 1 : n === 0` |
+| `exactly-one-<S>-when-started` | S occurs exactly once in >= 90% of episodes containing C | `started ? n === 1 : n === 0` |
+
+All four are computed over the instances of a subject. None of them require a
+sequence to repeat.
 
 Every proposed rule is printed with its support and its counter-evidence. A rule
 at 55% support is offered as a *decision* — "this would have stopped 35 of 77" —
@@ -330,8 +393,12 @@ deliberately poor mechanism — it lags, and it cannot see a command before it r
 
 v0 is done when, on a corpus not written for it:
 
-1. `audit` reproduces §1's numbers, and `--show` traces every one of the 35 to a
-   project, session, timestamp and command.
+1. `audit` reproduces both §1 and §1.1 - the pooled numbers and the per-project
+   breakdown - and `--show` traces every one of the 35 to a project, session,
+   timestamp and command. On a project below the support floor it says so
+   plainly and proposes nothing; seventeen of thirty-two projects here are in
+   that state, and a tool that manufactures a finding for them is worse than one
+   that stays quiet.
 2. `--correct` on a mis-classified project changes the number, and the change
    survives a re-run.
 3. `propose` emits a proposal for the push shape that **polygen can author and
@@ -391,9 +458,12 @@ the boundary should be a property of the design, not a setting.
 
 ## 8. Open questions
 
-1. **One corpus produced one workflow.** Is that this machine, or is it general?
-   If most users get zero candidates, the audit is the product and proposal is a
-   feature. That is knowable early and should be checked before §3.2 is built.
+1. ~~One corpus produced one workflow - is that this machine, or general?~~
+   **Answered in §1.1, and it changed the design.** At single-project scale
+   sequence mining yields 3% and event mining yields 22%. What remains unknown
+   is the floor: seventeen of thirty-two projects are too small to say anything
+   about, so polyness has to be able to say "not enough history yet" without
+   that reading as a failure.
 2. **How is a shape named?** `verified-push` was chosen by hand here. Episode
    intent text is the obvious source, and it is the one part of the pipeline that
    wants a model.
