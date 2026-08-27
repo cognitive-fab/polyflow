@@ -8,6 +8,18 @@ import { createInterface } from 'node:readline';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
+/**
+ * The one schema rule worth enforcing here: a required argument that is absent.
+ * A model that forgets one should be told which field it forgot — without this
+ * the omission travels down into the store and comes back as a driver error
+ * ("cannot be bound to SQLite parameter 1"), which names nothing the model can
+ * act on. Everything else is left to the tool, which knows its own domain.
+ */
+function missingArgs(tool, args) {
+  const required = tool.inputSchema?.required ?? [];
+  return required.filter((k) => args[k] === undefined || args[k] === null);
+}
+
 export function serve({ name, version, tools, stdin = process.stdin, stdout = process.stdout }) {
   const byName = new Map(tools.map((t) => [t.name, t]));
   const write = (msg) => stdout.write(JSON.stringify(msg) + '\n');
@@ -39,8 +51,14 @@ export function serve({ name, version, tools, stdin = process.stdin, stdout = pr
       case 'tools/call': {
         const tool = byName.get(params?.name);
         if (!tool) return fail(id, -32602, `unknown tool '${params?.name}'`);
+        const args = params.arguments ?? {};
+        const missing = missingArgs(tool, args);
+        if (missing.length) {
+          return fail(id, -32602,
+            `${tool.name} needs ${missing.map((m) => `'${m}'`).join(', ')} — see its inputSchema`);
+        }
         try {
-          const result = await tool.handler(params.arguments ?? {});
+          const result = await tool.handler(args);
           return reply(id, {
             content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
             structuredContent: result,
