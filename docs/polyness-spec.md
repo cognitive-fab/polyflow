@@ -77,6 +77,44 @@ answerable from the pushes alone. §4.4 is written accordingly: **rules are mine
 over consequential events, not over shapes.** Seven projects in twenty-two
 percent beats one in three.
 
+### 1.2 What the pooled number was hiding
+
+Splitting the ten projects that push regularly by whether they verify at all:
+
+| pushes | verified | verification runs | project |
+|---|---|---|---|
+| 14 | **12** | 245 | kanjo |
+| 11 | **11** | 82 | polycheck |
+| 10 | **10** | 550 | polysec |
+| 10 | **9** | 147 | polysim |
+| 6 | **6** | 3 | sam |
+| 3 | **3** | 281 | puffin |
+| 7 | **0** | 1 | baanbaan-Merchant |
+| 5 | **1** | 5 | cognitive-fab |
+| 3 | **2** | 6 | hanuman-thai-cafe |
+| 3 | **0** | 0 | glm |
+
+Seven of the ten run verification five or more times. **Every one of those seven
+verifies before pushing, almost always.** The 45% in §1 is concentrated in the
+projects that barely test at all — where the finding is not "you forgot" but
+"this project has no tests", which is a different sentence and not one a workflow
+fixes.
+
+This split is the difference between a tool that holds you to your own standard
+and a linter with opinions. §4.4.1 makes it a rule of the design rather than an
+observation about this corpus.
+
+### 1.3 How much of this survived its own classifier
+
+An earlier pass of the same measurement reported kanjo as 7 pushes, 0 verified.
+It is 14 pushes, 12 verified. Nothing changed but the regular expression deciding
+what counts as a verification — `make check` and `npm run <script>` were added.
+
+One classifier change moved a headline finding from "this project never verifies"
+to "this project nearly always does". That is the whole argument for building
+`--show` and `--correct` (§3.1) before building anything that depends on the
+number, and for `unknown` staying `unknown` (§4.2.2).
+
 ---
 
 ## 2. Goal, and what v0 is for
@@ -167,12 +205,13 @@ there to name the thing, not to justify it.
 ```
 $ polyness propose git-push
 
-  From 7 pushes in this project. Lead-in taken from the 5 that share one.
+  From 14 pushes in this project. Lead-in taken from the 12 that share one.
 
   Steps          verify → stage → commit → push
   Rules          derived from your history, and how it would have gone:
-                   no-push-without-a-passing-verify     would have stopped 7 of 7
-                   at-most-one-push-per-run             never violated (7/7)
+                   no-push-without-a-passing-verify     you did this 12 of 14 times
+                                                        would have stopped the other 2
+                   at-most-one-push-per-run             never violated (14/14)
                    commit-implies-a-prior-stage         never violated (23/23)
 
   Written to     .polyness/proposals/verified-push/
@@ -190,10 +229,19 @@ A rule is only proposed when the history supports it (§4.4). Each is printed wi
 its own counter-evidence, because a rule your own history violates half the time
 is a decision, not a discovery — and the person reading has to make it.
 
-Note the first rule above: the proposed workflow puts verification *before* the
-push, which is what 0 of these 7 runs actually did. A proposal is not a
-description of what you do. It is what the rest of your history says you meant
-to.
+Note what the first rule is made of. It is not a best practice and it is not this
+tool's opinion: it is **your own twelve**. The proposal holds you to the standard
+the majority of your own history already keeps, and the two it would have stopped
+are the exception rather than the rule.
+
+That is the whole stance, and it is why §4.4.1 exists:
+
+> A proposal is not a description of what you do. It is what the rest of your
+> history says you meant to.
+
+The load-bearing words are *the rest of your history*. A rule with no support in
+this project is not something you meant to do; it is something somebody else
+thinks you should.
 
 ### 3.3 `polyness watch`
 
@@ -345,6 +393,28 @@ polyflow's effect-invariant predicates — the same `path.count`, `path.emitted`
 All four are computed over the instances of a subject. None of them require a
 sequence to repeat.
 
+#### 4.4.1 Where a rule's evidence has to come from
+
+A proposal is normative — it asks you to do something you did not always do. That
+is only legitimate while the norm is *yours*, so every proposed rule carries its
+provenance and the three cases are presented differently:
+
+| provenance | condition | how it is offered |
+|---|---|---|
+| **own** | the rule holds in ≥ 60% of this project's instances of the subject | proposed, with the exceptions listed. "You did this 12 of 14 times." |
+| **borrowed** | it holds in ≥ 3 of your *other* projects and has < 60% support here | shown separately, never in the proposal by default. "Five of your other projects do this; this one does not." |
+| **neither** | no support anywhere in the corpus | **not proposed at all**, at any confidence |
+
+The measurement in §1.2 is why. A project with 7 pushes, 1 verification run and
+0 verified pushes has no own-evidence for verify-before-push. Proposing it there
+would be importing an opinion under the appearance of a finding — and a tool that
+does that once is a linter, which is a thing people mute.
+
+Borrowed rules are the interesting middle and are deliberately quiet in v0: shown
+on request, never in the default proposal. A user who wants their standards
+spread across projects can ask; a user who does not should never be told what
+their other repositories imply about this one.
+
 Every proposed rule is printed with its support and its counter-evidence. A rule
 at 55% support is offered as a *decision* — "this would have stopped 35 of 77" —
 not as something the data discovered.
@@ -456,7 +526,62 @@ the boundary should be a property of the design, not a setting.
 
 ---
 
-## 8. Open questions
+## 8. Where polyness sits, and why not on polycrew
+
+polyness depends on **polyflow**, not on polycrew. The dependency runs the same
+direction as polycrew's own: down, toward the single-participant engine.
+
+```
+   polyness   ──reads──▶  a journal        ──proposes──▶  a workflow
+      │                                                        │
+      └──────────────── polyflow ◀────────── admits or refuses ─┘
+                            ▲
+                        polycrew          only when more than one participant
+                                          runs what polyness proposed
+```
+
+Mining is a read-only batch over local files. It has no orders, no claims and
+nothing to share, so building it on the coordination layer would add a broker to
+a program that has nothing to coordinate. polycrew enters at *run* time, if the
+workflow polyness proposed is worked by several sessions — and polyness does not
+need to know that happened.
+
+### 8.1 Getting beyond one host
+
+The concern is real: a tool that reads `~/.claude/projects` is a Claude Code
+tool by construction, and the interesting corpus is every agent, not one.
+
+Two things carry it, and neither is polycrew.
+
+**Recognition and proposal ship as MCP tools, not as a CLI.** `workflow_suggest`
+beside `workflow_list` puts them in front of every host already speaking MCP —
+OpenWorker, Kiro, Hermes, the DeepSeek Harness — with no per-host work at all.
+The CLI stays for the audit, which is a thing you read rather than a thing an
+agent calls.
+
+**The second corpus is polyflow's own journal, and it is host-neutral by
+construction.** Once work runs through polyflow, every step is already recorded
+as `(action, data, pre, post, actor, action_id)` — with the state that §6 has to
+add hooks to recover from Claude Code, and with no dependence on which agent was
+driving. It is already a valid Polygraph trace corpus. A second host needs no
+reader, no normaliser and no alphabet: it needs to have run something.
+
+So the reader interface in §4.1 has exactly two implementations worth building,
+and they are not two agents:
+
+| corpus | when it applies | what it costs |
+|---|---|---|
+| the host's native journal | **cold start** — before anything runs through polyflow | one reader and one normaliser per host, and everything in §1.3 about classifiers being soft |
+| polyflow's journal | from the first admitted workflow onward | nothing; it is the trace corpus already |
+
+That is the on-ramp, and it is why v0 reads Claude Code's transcripts despite
+their gaps. **Mine the journal you already have, propose your first workflow,
+and from then on the journal is the good one.** Each host needs a reader only
+until its first workflow runs.
+
+---
+
+## 9. Open questions
 
 1. ~~One corpus produced one workflow - is that this machine, or general?~~
    **Answered in §1.1, and it changed the design.** At single-project scale
@@ -470,6 +595,12 @@ the boundary should be a property of the design, not a setting.
 3. **When does a proposal go stale?** A workflow admitted from June's history may
    not describe September's repo. polyvers gates a *changed* workflow against
    in-flight runs; nothing yet gates an *outdated* one against changed practice.
-4. **Does recognition belong in polyness at all?** It could be a polyflow tool —
-   `workflow_suggest` beside `workflow_list` — which would put it in front of
-   every agent already speaking MCP rather than behind a separate watcher.
+4. ~~Does recognition belong in polyness at all?~~ **Answered in §8.1: it ships
+   as an MCP tool.** A watcher tailing a JSONL file is a Claude Code feature; a
+   tool beside `workflow_list` is available to every host that speaks MCP, and
+   it can see a step before it runs rather than after.
+5. **Does the host reader earn its keep?** §8.1 argues each host needs one only
+   until its first workflow runs. If cold-start mining reliably produces nothing
+   on a small project (§1.1: seventeen of thirty-two), the on-ramp may be too
+   narrow to be worth a reader per host — and the honest alternative is to ship
+   one hand-written starter workflow and let the journal accumulate.
