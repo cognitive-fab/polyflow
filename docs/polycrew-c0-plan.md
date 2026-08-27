@@ -65,7 +65,12 @@ hold.
       to the demo one polyflow ships. 3 tests, over stdio, no model.
       Polyflow gained `src/index.mjs` and an `exports` map on the way: the
       boundary is a door now, not a set of deep paths.
-- [ ] 2 — identity and registry
+- [x] **2 — identity and registry.** Actor ids minted per process; the
+      registry is a *directory* (`~/.polyflow/registry/<crew>/<actor>.json`),
+      one file per session, not the single `instances.json` the spec asked for
+      — concurrent sessions would lose entries to read-modify-write with no
+      error anywhere. Dead pids and torn files reaped on read. `portFor(area)`
+      derives the broker port. 11 tests.
 - [ ] 3 — the order store
 - [ ] 4 — election and proxy
 - [ ] 5 — the crew tools
