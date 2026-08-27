@@ -86,7 +86,7 @@
   .t-new{color:var(--accent-2)} .t-ext{color:var(--med)} .t-same{color:var(--low)}
 
   /* phases */
-  .phases{display:grid;gap:1rem;grid-template-columns:repeat(3,1fr);margin-top:1.4rem}
+  .phases{display:grid;gap:1rem;grid-template-columns:repeat(2,1fr);margin-top:1.4rem}
   .phase{border:1px solid var(--rule);border-radius:4px;background:var(--card);padding:1.2rem 1.3rem;display:flex;flex-direction:column;gap:.8rem}
   .ph-top{display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
   .ph-when{font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
@@ -111,7 +111,7 @@
 <div class="page">
 
   <header class="mast">
-    <div class="eyebrow">polycrew &middot; specification &middot; draft 3</div>
+    <div class="eyebrow">polycrew &middot; specification &middot; draft 4</div>
     <h1>Many hands,<br>one journal</h1>
     <p class="lede">polycrew is the multi-participant layer over polyflow. How several agents &mdash; and the people among them &mdash; work one run at the same time, how they wait for each other, and how what they did becomes a record nobody has to take on faith. Every coordination is a journaled step of a machine that was checked before it loaded. Agents never talk to each other; they talk to the run.</p>
     <div class="method">
@@ -148,7 +148,22 @@
         </tbody>
       </table>
     </div>
-    <p class="note"><b>Establish before building.</b> The daemon may not be necessary. MA-6 already puts the claim on the outbox row, and an order is derivable from that row &mdash; so <code>workflow_next</code> can be a store query rather than a memory lookup, and a report can dispatch the completion directly (<code>{intentId}:done</code>) from any process holding the store, with the <code>_journaled(row, &rsquo;:done&rsquo;)</code> fence in <code>workers.mjs</code> converging the parked handler. That route needs Postgres, since polyrun is explicit that SQLite is one writer per file. A day spent settling this decides whether polycrew is a service or a store profile plus a tool surface.</p>
+    <p class="note"><b>Settled (draft 4).</b> Neither route in the earlier draft survives contact with the MVP. The broker is <b>elected, not deployed</b> &mdash; see MA-22. Nothing is installed, SQLite stays, and the store keeps exactly one writer.</p>
+
+    <h3 style="margin-top:1.6rem">The boundary, named</h3>
+    <p>polycrew depends on polyflow as a library and supplies two of its four exports. Both refactors are additive and can be built and tested in polyflow <em>before polycrew exists</em>, which is how the seam gets proved while there is still only one package.</p>
+    <div class="scrollx">
+      <table>
+        <thead><tr><th>polyflow exports</th><th>polycrew provides</th></tr></thead>
+        <tbody>
+          <tr><td><code>Library</code> &mdash; load, <code>certify</code>, <code>deriveKey</code>, <code>machineSpec</code></td><td><em>uses as-is; never forks the gate</em></td></tr>
+          <tr><td><code>Polyflow</code> &mdash; the engine: <code>begin</code>, <code>view</code>, <code>report</code>, <code>dispatch</code>, <code>journal</code>, <code>settle</code></td><td><em>uses as-is</em></td></tr>
+          <tr><td><code>Broker</code> &mdash; the default in-process one</td><td><b>a store-backed broker with claims</b></td></tr>
+          <tr><td><code>makeTools(pf, extra)</code> &mdash; the six tools</td><td><b>the crew tools, appended</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Two changes in polyflow, both small: <code>Polyflow</code> takes a broker instead of constructing <code>new Broker()</code>, and <code>makeTools</code> accepts extra definitions (<code>serve()</code> already takes a list, so nothing changes there). A test that a substitute broker drives a run end to end is the whole proof.</p>
   </section>
 
   <section>
@@ -281,9 +296,12 @@
     </div></div>
 
     <div class="req"><span class="rid">MA-3</span><div class="rbody">
-      <h3>An actor attaches with the roles it can play</h3>
-      <p>New tool <code>workflow_attach { roles[] }</code> &mdash; the actor is the server&rsquo;s own (MA-1). It is idempotent and returns the workflows in the library whose roles intersect the actor&rsquo;s. Attaching is not joining a run &mdash; it is the actor saying what kind of order it will accept. OpenWorker&rsquo;s <code>personas/</code> and <code>teams/</code> are where an integrator would source the role list; Kiro Crew members map the same way.</p>
-      <div class="src"><b>where</b> tools.mjs · a small in-store actor registry keyed by instance area, so a restart forgets nothing</div>
+      <h3>Roles come from the process environment, never from a tool argument</h3>
+      <p>An earlier draft had <code>workflow_attach { roles[] }</code>. That is MA-1&rsquo;s hole one level up: a session that declares its own roles can attach as <code>reviewer</code> and satisfy its own approval gate. Anything a model can say, a model can say wrongly.</p>
+      <p>Roles are read from the server&rsquo;s environment at boot, beside its minted actor id: <code>POLYFLOW_ROLES=gatherer,reviewer</code>. A project&rsquo;s <code>.mcp.json</code> pins them for every session in it; an ambient variable overrides for one &mdash; <code>POLYFLOW_ROLES=reviewer claude</code> is how you run one terminal as the reviewer.</p>
+      <p><code>workflow_attach</code> therefore takes no arguments. It <em>reports</em>: this actor&rsquo;s id, the roles it holds, the capabilities its host binds, and the workflows it can take orders from. Useful for orienting a session, incapable of changing anything.</p>
+      <p>OpenWorker&rsquo;s <code>personas/</code> and <code>teams/</code> and Kiro Crew&rsquo;s members are where an integrator sources that environment; for a CLI session it is a shell variable.</p>
+      <div class="src"><b>where</b> bin/polyflow-mcp.mjs reads POLYFLOW_ROLES on boot &middot; a small in-store actor registry keyed by instance area, so a restart forgets nothing</div>
     </div></div>
 
     <div class="req"><span class="rid">MA-4</span><div class="rbody">
@@ -361,6 +379,22 @@
       <h3>Progress is a journaled action, not a chat message</h3>
       <p>A long order may report progress: <code>workflow_report { order_id, progress: {…} }</code> without <code>ok</code>. It renews the lease and dispatches the manifest&rsquo;s optional <code>onProgress</code> action into the machine with the payload as data. A workflow that declares no <code>onProgress</code> gets the lease renewal and a journal row of kind <code>progress</code>, and nothing else. Progress is therefore visible in <code>workflow_state</code> to every other actor, and in the journal forever.</p>
       <div class="src"><b>where</b> effects.manifest.json per-kind <code>onProgress</code> · a progress row carries no state change, like a rejected step (FR-2.5)</div>
+    </div></div>
+  </section>
+
+    <div class="req"><span class="rid">MA-22</span><div class="rbody">
+      <h3>The broker is elected, not deployed</h3>
+      <p>The first polyflow process to start on an instance area binds that area&rsquo;s derived port (MA-21), opens the store, and runs the polyrun workers. Every later session finds it through the registry and proxies its MCP calls to it over loopback. <b>Binding the port is the election</b> &mdash; the operating system hands it to exactly one process, so there is no consensus protocol, no leader lease, and nothing to configure.</p>
+      <p>What this buys, against the two routes it replaces:</p>
+      <ul>
+        <li><b>Nothing is installed.</b> No service, no container. The broker is whichever <code>claude</code> session started first; the second is a client. From the user&rsquo;s side it is still one entry in <code>.mcp.json</code>.</li>
+        <li><b>SQLite stays.</b> The reason to reach for Postgres was many writers. Under election there is exactly one, so <code>node:sqlite</code> remains inside polyrun&rsquo;s supported envelope instead of outside it.</li>
+        <li><b>No orphaned handlers.</b> Only the broker runs effect handlers, so a parked promise is never stranded in another process. The <code>_journaled(row, &rsquo;:done&rsquo;)</code> fence stays what it was built to be &mdash; crash recovery &mdash; rather than a routine path.</li>
+        <li><b>The dashboard is free.</b> Same process, same port, already specified (MA-20, MA-21).</li>
+      </ul>
+      <p><b>Recovery needs nothing new.</b> The broker dies, the port frees, the next proxied call fails, that client retries and either finds a new broker or becomes one. Orders live in the store; leases expire and they are re-offered with <code>attempt+1</code>, which is the model already in MA-7.</p>
+      <p><b>Orders get their own table.</b> A <code>pf_orders</code> row &mdash; instance, intent id, kind, payload, role, capability, <code>claimed_by</code>, <code>claimed_until</code> &mdash; rather than reusing the outbox row. The outbox lease belongs to polyrun&rsquo;s worker and covers <em>the effect</em>; the claim belongs to an actor and covers <em>the order</em>. They are two different leases on two different things, and conflating them makes both mean less.</p>
+      <div class="src"><b>where</b> bin/polyflow-mcp.mjs boot: try to bind, else proxy &middot; store.mjs adds pf_orders &middot; the registry (MA-21) is the discovery path</div>
     </div></div>
   </section>
 
@@ -486,7 +520,7 @@ TRIAGED: (model) => (p, { reject, next }) => {
         <thead><tr><th>Tool</th><th></th><th>Change</th></tr></thead>
         <tbody>
           <tr><td><code>workflow_list</code></td><td class="tag t-ext">extended</td><td>Each workflow lists its <code>roles</code>, its <code>children</code>, and the cross-machine guarantees it was admitted under, beside the emission ones.</td></tr>
-          <tr><td><code>workflow_attach</code></td><td class="tag t-new">new</td><td><code>{roles[]}</code> &rarr; the workflows this actor can take orders from. Idempotent.</td></tr>
+          <tr><td><code>workflow_attach</code></td><td class="tag t-new">new</td><td>No arguments. Reports this actor&rsquo;s id, its roles and bound capabilities, and the workflows it can take orders from. Identity and roles both come from the process (MA-1, MA-3), so it orients a session and changes nothing.</td></tr>
           <tr><td><code>workflow_start</code></td><td class="tag t-ext">extended</td><td>Takes <code>actor</code>. Still derives the key; still re-attaches. The starting actor is the default addressee for role-less orders.</td></tr>
           <tr><td><code>workflow_next</code></td><td class="tag t-new">new</td><td><code>{instance?}</code> &rarr; unclaimed orders this actor may take, across the area or one run, including children.</td></tr>
           <tr><td><code>workflow_claim</code></td><td class="tag t-new">new</td><td><code>{order_id}</code> &rarr; the order with a lease, or <code>claimed-by-other</code>.</td></tr>
@@ -537,14 +571,25 @@ TRIAGED: (model) => (p, { reject, next }) => {
       <div class="eyebrow">11 &middot; Plan</div>
       <h2>Three milestones, each measurable with the phase-3 harness</h2>
     </div>
+    <p>C0 is the MVP and it is deliberately smaller than C1. The target is several Claude Code CLI sessions on one run: one host, one tool vocabulary. That needs neither roles nor capability binding &mdash; both exist for heterogeneity &mdash; and no children, no join, no product checker, no reports, no human writes. Every piece of it is on the path to the rest rather than thrown away.</p>
     <div class="phases">
+      <div class="phase" style="border-left:3px solid var(--accent)">
+        <div class="ph-top"><h3>C0 &mdash; the MVP</h3><span class="ph-when">two CLI sessions, one run</span></div>
+        <ul>
+          <li><b>The seam first</b>, in polyflow, before polycrew exists: <code>Polyflow</code> takes an injected broker; <code>makeTools</code> accepts extra definitions. A substitute broker driving a run end to end is the proof. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">&sect;0b</span></li>
+          <li><b>Elected broker</b>, the instance registry, and <code>pf_orders</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-21, 22</span></li>
+          <li><b>Server-minted actor ids</b>; claims, leases, arbitration; <code>workflow_next</code> and <code>workflow_claim</code>; the <code>actor</code> journal column. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-1, 4, 6&ndash;8, 14</span></li>
+          <li><b>Dashboard, read-only.</b> <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-20</span></li>
+          <li><b>Measure</b>: two <code>claude</code> sessions in one project on a run with several open orders. One completion per order, two distinct actor ids neither session chose, and after killing one mid-order its claim expires and the other takes it &mdash; visible in the journal and on the dashboard.</li>
+        </ul>
+      </div>
       <div class="phase">
-        <div class="ph-top"><h3>C1 &mdash; hands</h3><span class="ph-when">one machine, many actors</span></div>
+        <div class="ph-top"><h3>C1 &mdash; hands</h3><span class="ph-when">roles and other hosts</span></div>
         <ul>
           <li><b>One broker per instance area</b> &mdash; the prerequisite for everything else. Settle the route first (&sect;0b): either the MCP server becomes a daemon with a streamable transport and the stdio binary a thin proxy, or claims and completions go through a Postgres store and stdio stays. Build the second if it holds; it keeps polyflow&rsquo;s zero-infrastructure install intact.</li>
-          <li><b>Server-minted actor ids</b> and the instance registry; <b>roles</b> and <b>capability binding</b> in the descriptor; <code>workflow_attach</code>, <code>workflow_next</code>, <code>workflow_claim</code>. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-1..4, 6..9, 19, 21</span></li>
-          <li><b>Journal columns</b> actor and order_id. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-14</span></li>
-          <li><b>Measure</b>: two Claude Code CLI sessions in one project on the same run&rsquo;s multi-order step; kill one mid-order; expect one completion per order, the re-offer in the journal, and two distinct actor ids neither session chose.</li>
+          <li><b>Roles</b> from the environment and <b>capability binding</b> in the descriptor &mdash; what a second host or a person makes necessary; <code>workflow_attach</code>; human actors and provenance; dashboard writes on loopback. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-2, 3, 9, 18, 19, 20</span></li>
+          <li><b>Journal provenance</b> beside actor and order. <span style="font-family:var(--mono);font-size:.78rem;color:var(--faint)">MA-14, 18</span></li>
+          <li><b>Measure</b>: an approval order only a <code>kind: "human"</code> role may claim, answered from the dashboard and marked <code>verified</code>; and the same order refused to an agent session holding no such role.</li>
         </ul>
       </div>
       <div class="phase">
@@ -569,7 +614,7 @@ TRIAGED: (model) => (p, { reject, next }) => {
   </section>
 
   <footer>
-    polycrew specification &middot; draft 3 &middot; 26 August 2026 &middot; Cognitive Fab LLC &middot; grounded in polyflow <code>src/</code> at HEAD and polyrun FR-1&ndash;FR-8
+    polycrew specification &middot; draft 4 &middot; 26 August 2026 &middot; Cognitive Fab LLC &middot; grounded in polyflow <code>src/</code> at HEAD and polyrun FR-1&ndash;FR-8
   </footer>
 
 </div>
