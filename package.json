@@ -1,6 +1,6 @@
 {
   "name": "polyflow",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A workflow engine for AI agents: the agent reasons a workflow, polyflow admits it only if it model-checks, then runs it durably and hands the agent one work order at a time.",
   "type": "module",
   "main": "src/index.mjs",
