@@ -54,7 +54,14 @@ const OPEN = 'open';
  *      caller reads `.ok` off an unawaited promise, which answers `{}` to
  *      every report while the run advances behind it.
  *
- *   5. `report` MUST resolve with an OBJECT. The resolved value becomes the
+ *   5. `report` MUST resolve with an OBJECT.
+ *
+ *   6. `report` MAY answer `{ ok: true, deferred: true, hint }` when it has
+ *      RECORDED the result but has nothing parked to deliver it to — a
+ *      store-backed broker whose predecessor died holds the order row but not
+ *      the promise. The caller then skips waiting for a completion step that
+ *      is not coming. The alternative is losing a piece of work that was
+ *      actually done, which is how a run ends up doing it twice. The resolved value becomes the
  *      completion action's data, and an action whose data is a bare string has
  *      no fields for the machine to read. Wrap a non-object as `{ value }`.
  *

@@ -199,6 +199,13 @@ export function makeTools(pf, extra = []) {
         // reading .ok off a promise would report every failure as a success.
         const ack = await pf.report(order_id, { ok, result, error, permanent, actor });
         if (!ack.ok) return { error: ack.reason, hint: ack.hint };
+        if (ack.deferred) {
+          // The broker RECORDED the result but had nothing parked to deliver
+          // it to — the process holding the handler is gone. The work is safe
+          // and the engine will take it up when it re-offers the order, so
+          // there is no completion step to wait for here.
+          return { ...(await runView(order.instanceId)), note: ack.hint };
+        }
         // Wait for THIS report's own step, not merely for the run to move:
         // with two actors on one run, someone else's completion can arrive
         // first and the view would describe their work rather than this call's.
