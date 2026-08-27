@@ -1,8 +1,13 @@
 {
   "name": "polyflow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A workflow engine for AI agents: the agent reasons a workflow, polyflow admits it only if it model-checks, then runs it durably and hands the agent one work order at a time.",
   "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./package.json": "./package.json"
+  },
   "license": "Apache-2.0",
   "bin": {
     "polyflow-mcp": "bin/polyflow-mcp.mjs",

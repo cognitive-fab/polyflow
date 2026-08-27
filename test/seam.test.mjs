@@ -11,8 +11,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { Polyflow } from '../src/daemon.mjs';
-import { makeTools } from '../src/tools.mjs';
+// Through the public entry, not the internals — this is the import polycrew makes.
+import { Polyflow, makeTools, Library, Broker, serve, Area, deriveKey } from '../src/index.mjs';
 
 const WORKFLOWS = resolve(import.meta.dirname, '..', 'workflows');
 
@@ -68,6 +68,12 @@ class RecordingBroker {
     this.waiting.clear();
   }
 }
+
+test('the public surface is exactly what the boundary promises', () => {
+  for (const [name, thing] of Object.entries({ Polyflow, makeTools, Library, Broker, serve, Area, deriveKey })) {
+    assert.equal(typeof thing, 'function', `${name} must be exported from src/index.mjs`);
+  }
+});
 
 test('a substitute broker drives a real run end to end', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'polyflow-seam-'));
