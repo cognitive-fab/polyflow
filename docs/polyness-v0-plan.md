@@ -60,7 +60,20 @@ Steps 1, 2 and 4 are mechanical once 0 has answered.
 
 ## Status
 
-- [ ] 0 — the far end: a hand-written proposal, authored and admitted
+- [x] **0 — the far end.** [`cognitive-fab/polyness`](https://github.com/cognitive-fab/polyness)
+      exists, pinned to polyflow v0.4.2. `proposals/verified-push/` is a workflow
+      written by hand to exactly the shape the miner will emit, admitted at 5
+      paths, 8 states, exhaustive. The decisive test is the fourth: weaken it the
+      one way a careless author would — let a failed verification carry on to
+      staging instead of ending the run, rules file and effect mapper untouched —
+      and the gate refuses it, naming the path
+      `START → VERIFY_FAILED → STAGED → COMMITTED → PUSH_FAILED` and the `push`
+      it would have emitted. `begin()` then rejects, because a refusal is not a
+      warning. **The propose path is viable; v0 is not audit-only.**
+      *Not done:* polygen's leg. It needs a model call and only a DeepSeek key is
+      present while polygen recommends opus-5, so the machine is hand-authored to
+      the same contract — which proves the gate path and not the automation.
+      4 tests.
 - [ ] 1 — reader and normaliser
 - [ ] 2 — corrections
 - [ ] 3 — subjects, rules, provenance
