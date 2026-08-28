@@ -122,14 +122,41 @@ Steps 1, 2 and 4 are mechanical once 0 has answered.
       reject-after-write throw and never converged. Disambiguating the rules —
       and nothing else — converged on iteration 0. **Step 5's emitter inherits
       that as a requirement**, see the build plan.
-- [ ] 1 — reader and normaliser
-- [ ] 2 — corrections
-- [ ] 3 — subjects, rules, provenance
-- [ ] 3.5 — `polyness replay`
-- [ ] 4 — `polyness audit`
-- [ ] 4b — enforcement point (polyflow-side)
-- [ ] 5 — `polyness propose`
-- [ ] 6 — recognition as an MCP tool
+- [x] **1 — reader and normaliser.** Streamed; the alphabet, redaction and
+      outcome classification. Nine review findings, all wrong-number bugs: the
+      classifier read 460 failures against 25 passes corpus-wide because bare
+      `assert` counted as a failure.
+- [x] **2 — corrections.** One job, because `gitOperation` removed the other:
+      what counts as a verification HERE. Eleven review findings, two of which
+      moved a number at random.
+- [x] **3 — subjects, rules, provenance.** Reproduces §1.2's claim — of the ten
+      projects running a verification 5+ times, seven verify before pushing.
+      The guard window is the session and the run window is the episode,
+      because those are different questions.
+- [x] **3.5 — `polyness replay`.** Demonstrated on one supplied rule across the
+      real corpus: four projects keep it, six do not.
+- [x] **4 — `polyness audit`.** 6 of 31 projects have a step worth proposing
+      and 25 do not, in those words. `--show` traces every figure to records.
+- [x] **4b — enforcement point.** In polyflow: `src/match.mjs`,
+      `src/decisions.mjs`, `adapters/claude-code/gate.mjs`. A run whose
+      verification failed has its push DENIED at the tool, not merely
+      un-ordered. Default allow; fail-closed narrowly; gating opt-in per
+      effect via `match`.
+- [x] **5 — `polyness propose`.** Not blocked on the key after all: the key
+      gated polygen's leg, and propose is the emitter. Every contract carries
+      the disjoint-branch rule the 2026-08-27 polygen run produced, and the
+      emitter refuses to write a predicate naming an action the contract does
+      not declare.
+- [x] **6 — recognition as an MCP tool.** Fails its own bar, as predicted, and
+      the number is recorded rather than asserted away: 1 right against 15
+      wrong at a three-step prefix, over 1,758 episodes. That is what §6's
+      hooks have to beat.
+- [x] **README, a runnable example, and a getting-started guide.**
+      `examples/verified-push/run.mjs` runs the whole path on fifteen sessions
+      written out in the file, and a test checks every number its README claims
+      is one the run prints.
+
+**Seven review rounds, 63 findings fixed.** polyness: 164 tests. polyflow: 48.
 
 The measurement v0 is built to produce, on a corpus nobody prepared for it: **a
 workflow proposed from a user's own history, admitted by the gate, that would
