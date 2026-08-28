@@ -1,0 +1,49 @@
+{
+  "lang": "javascript",
+  "stateKeys": [
+    { "name": "phase", "type": "enum: 'idle' | 'verifying' | 'staging' | 'committing' | 'pushing' | 'pushed' | 'blocked'" },
+    { "name": "verified", "type": "boolean, did a verification pass on this run" },
+    { "name": "reason", "type": "string, why the run ended without pushing ('' otherwise)" }
+  ],
+  "initState": { "phase": "idle", "verified": false, "reason": "" },
+  "actions": {
+    "START": { "dataFields": {} },
+    "VERIFY_PASSED": { "dataFields": {} },
+    "VERIFY_FAILED": { "dataFields": { "reason": "string" } },
+    "STAGED": { "dataFields": {} },
+    "COMMITTED": { "dataFields": {} },
+    "PUSHED": { "dataFields": {} },
+    "PUSH_FAILED": { "dataFields": { "reason": "string" } }
+  },
+  "dataDomain": {
+    "START": {},
+    "VERIFY_PASSED": {},
+    "VERIFY_FAILED": { "reason": ["tests-failed"] },
+    "STAGED": {},
+    "COMMITTED": {},
+    "PUSHED": {},
+    "PUSH_FAILED": { "reason": ["remote-rejected"] }
+  },
+  "terminalKey": "phase",
+  "terminalStates": ["pushed", "blocked"],
+  "specialRules": [
+    {
+      "name": "a-failed-verification-ends-the-run",
+      "note": "VERIFY_FAILED goes straight to 'blocked'. The point of the workflow is that the push is unreachable from there, so there is nothing to stage.",
+      "whenState": "verifying",
+      "whenAction": "VERIFY_FAILED"
+    },
+    {
+      "name": "stale-completions-reject",
+      "note": "A report arriving in a state that does not await it is an observable rejection (post == pre), never a fault. Several sessions may share these orders.",
+      "whenState": "any non-awaiting state",
+      "whenAction": "VERIFY_PASSED | VERIFY_FAILED | STAGED | COMMITTED | PUSHED | PUSH_FAILED"
+    }
+  ],
+  "provenance": {
+    "mined_from": "code-kanjo",
+    "subject": "git push",
+    "instances": 14,
+    "note": "Steps taken from the 12 pushes that share a lead-in. See NOTES.md."
+  }
+}

@@ -63,11 +63,12 @@ report, proposal is v1, and steps 5 and 6 do not exist. That is worth knowing
 before the miner is written, not after — which is why it is step 0 rather than
 step 5.
 
-**Step 5 is blocked on a key, not on a design.** polygen recommends opus-5 and
-only a DeepSeek key is present, which is why step 0's machine is hand-authored.
-The gate path is proved; the automation is not. Settle the key before step 5
-starts, or step 5 becomes "hand-author from a generated contract" and the claim
-weakens accordingly.
+**Step 5 needs a key at the time it runs.** The design question is answered —
+polygen authors an admissible machine from a mined-shaped contract (step 0
+status). What remains is operational: opus-5 credentials must be available when
+step 5 executes, and the contract emitter must satisfy the disjoint-branch rule
+the 2026-08-27 run produced. A contract that fails that rule does not fail
+loudly; it fails as a repair loop that never converges.
 
 **Step 3's thresholds are guesses.** ≥5 instances, ≥60% for own evidence, ≥3
 projects for borrowed. They are set from one corpus and its test pins them
@@ -108,10 +109,19 @@ Steps 1, 2 and 4 are mechanical once 0 has answered.
       `START → VERIFY_FAILED → STAGED → COMMITTED → PUSH_FAILED` and the `push`
       it would have emitted. `begin()` then rejects, because a refusal is not a
       warning. **The propose path is viable; v0 is not audit-only.**
-      *Not done:* polygen's leg. It needs a model call and only a DeepSeek key is
-      present while polygen recommends opus-5, so the machine is hand-authored to
-      the same contract — which proves the gate path and not the automation.
       4 tests.
+      **polygen's leg, closed 2026-08-27.** Run against the same contract with
+      `--model opus-5`, polygen's authored machine — polyness's mined
+      `effect-invariants.mjs` untouched — is admitted at the *same* certificate
+      as the hand-written one (5 paths, 8 states, exhaustive), refuses the push
+      on a failed verification, and completes the happy path. The automation is
+      proved, not only the gate path.
+      It took two runs, and the first one is the finding: with `specialRules`
+      that named `VERIFY_FAILED` in two rules without declaring the branches
+      disjoint, the repair loop oscillated between an invariant violation and a
+      reject-after-write throw and never converged. Disambiguating the rules —
+      and nothing else — converged on iteration 0. **Step 5's emitter inherits
+      that as a requirement**, see the build plan.
 - [ ] 1 — reader and normaliser
 - [ ] 2 — corrections
 - [ ] 3 — subjects, rules, provenance

@@ -1,0 +1,21 @@
+{
+  "name": "verified-push",
+  "description": "Verify, stage, commit, push - and make the push unreachable on any path where verification did not pass. Proposed by polyness from 14 pushes in this project, 12 of which already did exactly this.",
+  "area": "polyness/proposed",
+  "inputAction": "START",
+  "tools": {
+    "verify": { "tool": "Bash", "why": "run the project's verification - the step the other two pushes skipped" },
+    "stage": { "tool": "Bash", "why": "stage the change" },
+    "commit": { "tool": "Bash", "why": "commit it" },
+    "push": { "tool": "Bash", "target": "origin", "why": "push - the step you cannot take back" }
+  },
+  "key": {
+    "template": "{branch}",
+    "fields": {
+      "branch": {
+        "pattern": "^[A-Za-z0-9._/-]+$",
+        "description": "the branch being pushed"
+      }
+    }
+  }
+}

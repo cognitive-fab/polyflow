@@ -1,0 +1,30 @@
+{
+  "effects": {
+    "verify": {
+      "payloadSchema": {},
+      "onSuccess": { "action": "VERIFY_PASSED" },
+      "onFailure": { "action": "VERIFY_FAILED", "data": { "reason": "tests-failed" } },
+      "onExhausted": { "action": "VERIFY_FAILED", "data": { "reason": "tests-failed" } },
+      "retry": { "maxAttempts": 2, "baseMs": 1000, "timeoutMs": 900000 }
+    },
+    "stage": {
+      "payloadSchema": {},
+      "onSuccess": { "action": "STAGED" },
+      "onFailure": { "action": "PUSH_FAILED", "data": { "reason": "remote-rejected" } },
+      "retry": { "maxAttempts": 2, "baseMs": 1000, "timeoutMs": 300000 }
+    },
+    "commit": {
+      "payloadSchema": {},
+      "onSuccess": { "action": "COMMITTED" },
+      "onFailure": { "action": "PUSH_FAILED", "data": { "reason": "remote-rejected" } },
+      "retry": { "maxAttempts": 2, "baseMs": 1000, "timeoutMs": 300000 }
+    },
+    "push": {
+      "payloadSchema": {},
+      "onSuccess": { "action": "PUSHED" },
+      "onFailure": { "action": "PUSH_FAILED", "data": { "reason": "remote-rejected" } },
+      "onExhausted": { "action": "PUSH_FAILED", "data": { "reason": "remote-rejected" } },
+      "retry": { "maxAttempts": 3, "baseMs": 2000, "timeoutMs": 300000 }
+    }
+  }
+}
