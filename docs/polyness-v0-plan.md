@@ -5,7 +5,7 @@ keep doing and the guard they keep skipping, propose that as a workflow their ow
 history supports, and put it through polyflow's gate. Spec:
 [`polyness-spec.md`](polyness-spec.md).
 
-## Four decisions, settled
+## Five decisions, settled
 
 **Its own repository**, `cognitive-fab/polyness`, pinned to polyflow the way
 polycrew is. v0's entire pitch is *install nothing, read a directory*; asking
@@ -29,6 +29,14 @@ ruled on the rule. It appears in this plan at all because polyness's headline
 claim depends on it: today the gate certifies that a workflow will never
 **order** an unverified push, which is not the sentence a reader hears.
 
+**Learning is replay, not retraining.** Nothing here fine-tunes anything. What
+improves is the rule set, and it improves because a rule is a predicate that can
+be scored against a corpus — before adoption, and again later. Two consequences
+settle the scope: intake is unlimited (a rule from anywhere can be replayed,
+§4.4.1's floor governs only what is *proposed*), and rules can be retired, which
+is the thing a memory file cannot do. The mechanism costs one CLI surface over
+work steps 1–3 already do.
+
 ## Steps
 
 Each is one commit with a test that proves it, ordered so nothing is built on an
@@ -40,8 +48,9 @@ unverified assumption.
 | 1 | **Reader and normaliser.** Stream Claude Code JSONL into the normalised record (spec §4.2): alphabet from the command not the tool, outcome classification, episodes split on user prompts. | Exact expected records from a fixture transcript. Then, as a smoke test against the real corpus: 414 sessions, 150 with tool calls, 28,382 calls. |
 | 2 | **Corrections.** Per-project store, `--correct`, re-classification. | Correcting a project's verification command changes its numbers, and the change survives a re-run. A project whose outcome cannot be classified reports `unknown` and is counted as neither. |
 | 3 | **Subjects, rules, provenance.** Consequential events with ≥5 instances; the four rule patterns; own / borrowed / none (spec §4.4.1). Every rule carries its support **and the date it was mined**; the thresholds are parameters, not constants. | Reproduces §1.2 exactly — 12/14, 11/11, 10/10, 9/10 — and proposes **no** rule for the project with 7 pushes and 1 verification run. That refusal is the test. |
-| 4 | **`polyness audit`.** Per-project output, `--show`, the below-floor message. | Every number in the output traces to specific journal records via `--show`. A project under the floor says "not enough history yet" and proposes nothing; seventeen of thirty-two here are in that state. |
-| **4b** | **Enforcement point** (polyflow-side). A `PreToolUse` adapter that denies a tool call with no matching open order. The descriptor's `tools` block stops being documentation and becomes the correspondence contract. | The weakened `verified-push` from step 0, run for real: the agent attempts the push after a failed verification and the call is **denied**, not merely un-ordered. And the gate refuses admission to a workflow asserting an invariant over an effect the adapter cannot recognise. |
+| **3.5** | **`polyness replay`** (spec §3.4). Score any rule — mined, admitted, or supplied from outside — against the corpus: holds, would-have-blocked, blocked-then-succeeded. Reuses step 3's predicates and step 1's records, so it is a CLI surface over work already done. | Scores a rule the tool did not mine, and refuses to propose one below the floor. Proved on a rule that **passes on one project and fails on another** from the same corpus — a scorer that only ever agrees with the miner has not been tested. |
+| 4 | **`polyness audit`.** Per-project output, `--show`, the below-floor message, and stale-rule reporting for admitted workflows whose support has decayed. | Every number in the output traces to specific journal records via `--show`. A project under the floor says "not enough history yet" and proposes nothing; seventeen of thirty-two here are in that state. |
+| **4b** | **Enforcement point** (polyflow-side). A `PreToolUse` adapter that denies a tool call with no matching open order. The descriptor's `tools` block stops being documentation and becomes the correspondence contract. It also writes the **decision journal** (spec §4.8) — allow, deny, and deny-then-overridden — which is the only source of labelled negatives in the system. | The weakened `verified-push` from step 0, run for real: the agent attempts the push after a failed verification and the call is **denied**, not merely un-ordered. And the gate refuses admission to a workflow asserting an invariant over an effect the adapter cannot recognise. A denial the user overrides appears in the journal as an overridden denial and is visible to `replay`. |
 | 5 | **`polyness propose`.** Emit the proposal directory from a mined subject, then hand off. | The same artifacts as step 0, **produced rather than hand-written**, admitted by the gate without hand-editing. |
 | 6 | **Recognition as an MCP tool.** `workflow_suggest` on polyflow's surface, not a CLI watcher (spec §8.1). | Given a held-out episode's first three steps, names the right workflow more often than it gets it wrong. Expected to be weak; measured anyway so v1 has a baseline. |
 
@@ -106,6 +115,7 @@ Steps 1, 2 and 4 are mechanical once 0 has answered.
 - [ ] 1 — reader and normaliser
 - [ ] 2 — corrections
 - [ ] 3 — subjects, rules, provenance
+- [ ] 3.5 — `polyness replay`
 - [ ] 4 — `polyness audit`
 - [ ] 4b — enforcement point (polyflow-side)
 - [ ] 5 — `polyness propose`

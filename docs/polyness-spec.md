@@ -120,22 +120,24 @@ number, and for `unknown` staying `unknown` (§4.2.2).
 ## 2. Goal, and what v0 is for
 
 The goal is **identify repeatable workflows and run them as such in a given
-situation.** Three verbs, in order:
+situation.** Four verbs, in order:
 
 1. **Audit** — show what you repeat and where the repetition already goes wrong.
-2. **Propose** — turn a step you keep taking into a workflow with the rules your
+2. **Replay** — score a rule, mined or supplied from anywhere, against this
+   project's history before anyone decides whether to adopt it (§3.4).
+3. **Propose** — turn a step you keep taking into a workflow with the rules your
    own history implies, and put it through polyflow's admission gate. A proposal
    that fails the gate is refused, not flagged.
-3. **Recognise** — when a session starts doing something a workflow covers, say
+4. **Recognise** — when a session starts doing something a workflow covers, say
    so and offer to start the run.
 
-v0 ships all three, narrowly. Audit works on the journal that exists today with
-nothing installed. Propose emits a candidate for one subject. Recognise suggests
-and never acts.
+v0 ships all four, narrowly. Audit works on the journal that exists today with
+nothing installed. Replay scores one rule at a time and adopts nothing. Propose
+emits a candidate for one subject. Recognise suggests and never acts.
 
 The weight is not evenly spread, and §1.1 is why. Audit finds something in 22% of
 projects; proposal follows from the same rules rather than from a second mining
-pass. **Audit is the product. Propose and recognise are what it is for.**
+pass. **Audit is the product. The other three are what it is for.**
 
 ### Out of scope for v0
 
@@ -261,6 +263,58 @@ $ polyness watch
 v0 prints. It does not call `workflow_start`, does not block a command, and does
 not modify a session. Turning a suggestion into an action is v1, and it needs
 the richer journal (§6) before it deserves to be automatic.
+
+### 3.4 `polyness replay`
+
+Scores a rule against history. The rule may be one polyness mined, one already
+admitted, or one that arrived from somewhere else entirely.
+
+```
+$ polyness replay no-push-without-a-passing-verify
+
+  code-kanjo · 14 pushes · rule mined 2026-08-27
+
+  holds                    12 of 14        86%
+  would have blocked        2              a94160e · 8326ef7
+  blocked-then-succeeded    0              none of the 2 pushed clean after
+
+  Support has not moved since this rule was mined. Still own evidence.
+```
+
+```
+$ polyness replay --rule 'no-deploy-without-a-prior-tag'
+
+  code-kanjo · 9 deploys · not mined here, supplied
+
+  holds                     2 of 9         22%
+  would have blocked        7
+
+  Below the 60% floor (§4.4.1). This is somebody else's rule and your history
+  does not keep it. Not proposed. Run again after a few more deploys.
+```
+
+Three things follow from having this at all, and they are the whole learning
+story.
+
+**A rule becomes falsifiable.** A rule written into a prompt or a memory file
+cannot be checked against anything; it is a wish. A rule that is a predicate over
+a path can be replayed over every instance the corpus holds, which means it can
+be scored before it is adopted and re-scored afterwards.
+
+**Intake stops depending on origin.** §4.4.1 refuses to *propose* a rule with no
+support here, and that stays. But a rule from a best-practices list, another
+team's convention, or a model's suggestion is a hypothesis, and a hypothesis can
+be tested rather than argued about. Unlimited intake, unchanged evidentiary bar —
+which is the only way to see more without believing more.
+
+**A rule can go stale, and stale is detectable.** Every mined rule carries the
+date it was mined and the support it had then. Re-mining a project re-scores its
+admitted rules; one whose support has fallen below the floor is reported stale
+and retired rather than left in force. This is what a memory file structurally
+cannot do — nobody ever deletes a line from one, which is why they rot.
+
+`replay` adopts nothing, writes nothing to `proposals/`, and never edits an
+admitted workflow. It prints a number and a list. Deciding is the user's.
 
 ---
 
@@ -403,7 +457,14 @@ provenance and the three cases are presented differently:
 |---|---|---|
 | **own** | the rule holds in ≥ 60% of this project's instances of the subject | proposed, with the exceptions listed. "You did this 12 of 14 times." |
 | **borrowed** | it holds in ≥ 3 of your *other* projects and has < 60% support here | shown separately, never in the proposal by default. "Five of your other projects do this; this one does not." |
-| **neither** | no support anywhere in the corpus | **not proposed at all**, at any confidence |
+| **neither** | no support anywhere in the corpus | **not proposed at all**, at any confidence — but replayable on request (§3.4) |
+
+Note what the last row does and does not say. It governs what polyness will
+*propose*, which is the normative act. It does not govern what may be *tested*:
+a rule from anywhere at all can be replayed against this project's history and
+scored, because scoring is an observation and proposing is a claim. That
+distinction is what lets intake be unlimited while the bar stays where §1.2 put
+it.
 
 The measurement in §1.2 is why. A project with 7 pushes, 1 verification run and
 0 verified pushes has no own-evidence for verify-before-push. Proposing it there
@@ -419,6 +480,10 @@ Every proposed rule is printed with its support and its counter-evidence. A rule
 at 55% support is offered as a *decision* — "this would have stopped 35 of 77" —
 not as something the data discovered.
 
+Every rule also carries **the date it was mined** alongside its support, because
+a support figure with no date cannot go stale, and a rule that cannot go stale
+cannot be retired. §3.4 is how it is re-checked.
+
 ### 4.5 State on disk
 
 ```
@@ -426,6 +491,7 @@ not as something the data discovered.
   corrections.json     per project: the real verification command, false positives
   shapes.sqlite        mined shapes, cached by journal mtime so audit is fast twice
   proposals/<name>/    contract.json · effect-invariants.mjs · polyflow.workflow.json · NOTES.md
+  decisions.jsonl      one line per gate decision: allow, deny, override (§4.8)
 ```
 
 Per project, beside `.polycrew/`. Never written outside the project directory,
@@ -457,6 +523,42 @@ v0 reads the live transcript by tailing the session's JSONL. This is a
 deliberately poor mechanism — it lags, and it cannot see a command before it runs.
 §6 replaces it.
 
+### 4.8 The decision journal
+
+Once a rule is enforced rather than merely proposed, the enforcement point
+produces the one kind of record no journal in this ecosystem currently holds.
+§6 measures the gap: today's transcript has **no recoverable record of a refused
+tool call**, and a refusal is the most informative event there is, because it
+sits exactly on the boundary the rule draws.
+
+Every gate decision appends one line:
+
+```js
+{
+  at:        1787802226170,
+  workflow:  'verified-push',
+  instance:  '…',
+  rule:      'no-push-without-a-passing-verify',
+  kind:      'push',                 // the effect the call was matched to
+  tool:      'Bash',
+  arg:       'git push origin main', // truncated and redacted as §7 requires
+  decision:  'deny',                 // allow | deny
+  overridden: true,                  // the user ran it anyway
+}
+```
+
+`allow` says the rule was satisfied. `deny` says it fired. `deny` **plus an
+override** says it fired and was wrong — a labelled false positive, with a
+timestamp and the command attached, produced as a byproduct of enforcement and
+obtainable no other way.
+
+That stream is the corpus §3.4 re-scores against. It is written in polyrun's
+format for the reason §8.1 gives: it is already a valid Polygraph trace corpus,
+so it returns to the miner with no translation.
+
+The journal is local, per project, and subject to §7 in full. A gate that cannot
+write it still decides — enforcement never waits on logging.
+
 ---
 
 ## 5. Acceptance
@@ -477,6 +579,10 @@ v0 is done when, on a corpus not written for it:
    where verification did not pass. Demonstrated, not asserted.
 5. `watch` names the right workflow from a held-out episode's first three steps,
    on more episodes than it gets wrong.
+6. `replay` scores a supplied rule the tool did not mine, and refuses to propose
+   one that scores below the floor. Demonstrated on a rule that *passes* on one
+   project and fails on another, from the same corpus — a scorer that only ever
+   agrees with the miner has not been tested.
 
 (5) is the weakest and is expected to stay weak in v0. It is measured anyway, so
 v1 has a baseline to beat.
@@ -505,6 +611,14 @@ Polygraph trace corpus — then the gate consumes it with no translation.
 
 The staging is the point. **v0 asks for nothing and gives a number.** v1 asks for
 a hook, and has already earned the right to.
+
+One row of that table arrives earlier than the rest, and the staging survives it.
+The enforcement point (§4.8) is a `PreToolUse` hook, and it lands in v0 — but only
+for a user who has already run `audit`, accepted a proposal, and had it admitted.
+By then the ask is earned in exactly the way this section argues it must be, and
+the audit path still asks for nothing. What changes is that the refusal row stops
+being a v1 promise and starts producing records the moment anyone enforces
+anything.
 
 ---
 
@@ -592,9 +706,14 @@ until its first workflow runs.
 2. **How is a shape named?** `verified-push` was chosen by hand here. Episode
    intent text is the obvious source, and it is the one part of the pipeline that
    wants a model.
-3. **When does a proposal go stale?** A workflow admitted from June's history may
-   not describe September's repo. polyvers gates a *changed* workflow against
-   in-flight runs; nothing yet gates an *outdated* one against changed practice.
+3. ~~When does a proposal go stale?~~ **Answered in §3.4 and §4.4.1, and it added
+   a verb.** Every rule carries the date it was mined and the support it had
+   then; re-mining re-scores an admitted rule against current history, and one
+   that has fallen below the floor is reported stale and retired. polyvers gates
+   a *changed* workflow against in-flight runs; `replay` gates an *outdated* one
+   against changed practice. What remains open is the cadence — whether re-mining
+   is a thing the user runs or a thing that happens, and how many instances of
+   drift are needed before "stale" is more than noise.
 4. ~~Does recognition belong in polyness at all?~~ **Answered in §8.1: it ships
    as an MCP tool.** A watcher tailing a JSONL file is a Claude Code feature; a
    tool beside `workflow_list` is available to every host that speaks MCP, and
