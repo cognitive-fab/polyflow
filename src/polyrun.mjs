@@ -21,8 +21,17 @@ if (override && !has(override)) {
 }
 
 // Otherwise: installed dependency first, sibling checkout second.
+//
+// The SCOPED name is probed first and explicitly. polygraph is published as
+// `@cognitive-fab/polygraph` — the bare `polygraph` on the public registry is an
+// unrelated package by other maintainers — so an installed copy lands under
+// `node_modules/@cognitive-fab/`, which neither of the bare-name candidates
+// below would ever have found. The bare paths are kept for a sibling checkout,
+// which is how development works here and what the directory is called on disk.
 const candidates = [
   override,
+  resolve(here, '..', 'node_modules', '@cognitive-fab', 'polygraph'),
+  resolve(here, '..', '..', '@cognitive-fab', 'polygraph'),
   resolve(here, '..', 'node_modules', 'polygraph'),
   resolve(here, '..', '..', 'polygraph'),
 ].filter(Boolean);

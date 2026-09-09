@@ -1,5 +1,5 @@
 {
-  "name": "polyflow",
+  "name": "@cognitive-fab/polyflow",
   "version": "0.4.2",
   "description": "A workflow engine for AI agents: the agent reasons a workflow, polyflow admits it only if it model-checks, then runs it durably and hands the agent one work order at a time.",
   "type": "module",
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@cognitive-fab/sam-pattern": "^2.2.0",
-    "polygraph": "https://github.com/cognitive-fab/polygraph/archive/8bb2fcad26c97b20d421b63b27801e6762a1640c.tar.gz"
+    "@cognitive-fab/polygraph": "^8.1.0"
   },
   "repository": {
     "type": "git",
