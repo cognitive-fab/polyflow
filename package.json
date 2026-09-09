@@ -13,6 +13,9 @@
     "./package.json": "./package.json"
   },
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "polyflow-mcp": "bin/polyflow-mcp.mjs",
     "polyflow-install": "bin/polyflow-install.mjs"
