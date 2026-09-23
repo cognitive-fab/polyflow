@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "rule": "RFC 8785 number and string encoding; keys NFC-normalised, collisions refused, then sorted by UTF-16 code unit; -0 as 0; non-finite refused",
+  "cases": [
+    {
+      "name": "empty object",
+      "input": "{}",
+      "text": "{}",
+      "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "name": "key order",
+      "input": "{\"b\":1,\"a\":2,\"c\":{\"z\":1,\"y\":2}}",
+      "text": "{\"a\":2,\"b\":1,\"c\":{\"y\":2,\"z\":1}}",
+      "digest": "sha256:c0f8bd0ab5119fda84f6a24ed2eff88949e145d20f0a1eddbb51e14ef1eae3cb"
+    },
+    {
+      "name": "numbers at exponent boundaries",
+      "input": "[1e-7,1e-6,0.000001,1e20,1e21,1e16,1.0,1e-5,-0,0.1,123456789012345680000]",
+      "text": "[1e-7,0.000001,0.000001,100000000000000000000,1e+21,10000000000000000,1,0.00001,0,0.1,123456789012345680000]",
+      "digest": "sha256:6265bc60437166c3830878f4bb60997bc7ef0e0b093aa188081e63f225f894f0"
+    },
+    {
+      "name": "float arithmetic result",
+      "input": "[0.30000000000000004]",
+      "text": "[0.30000000000000004]",
+      "digest": "sha256:e54ec050d935c92d92de7fb92c3c071820ac2482daad8fc6e9fe7404ee3af41c"
+    },
+    {
+      "name": "large and negative integers",
+      "input": "[9007199254740991,-9007199254740991,-1,0]",
+      "text": "[9007199254740991,-9007199254740991,-1,0]",
+      "digest": "sha256:c139bf5981525c128e695c79b825f6f31732cf08d7eb58ffc4f94f7c698c710b"
+    },
+    {
+      "name": "strings needing escapes",
+      "input": "[\"quote\\\"\",\"back\\\\slash\",\"tab\\t\",\"nl\\n\",\"ctl\\u0001\",\"u2028\\u2028\",\"u2029\\u2029\"]",
+      "text": "[\"quote\\\"\",\"back\\\\slash\",\"tab\\t\",\"nl\\n\",\"ctl\\u0001\",\"u2028 \",\"u2029 \"]",
+      "digest": "sha256:978f43e18d85943ecc6a763064a68231cfdc4de8a20fd00755a6e2ba0f9c0092"
+    },
+    {
+      "name": "non-ASCII is UTF-8, not escaped",
+      "input": "[\"é\",\"€\",\"日本\"]",
+      "text": "[\"é\",\"€\",\"日本\"]",
+      "digest": "sha256:9db598a5eb868683fdcfe3e7faf41dbaf474ce00fa80eb1756961487defee1ad"
+    },
+    {
+      "name": "astral keys sort by UTF-16 code unit",
+      "input": "{\"\\uD83D\\uDE00\":1,\"\\uFF01\":2,\"a\":3}",
+      "text": "{\"a\":3,\"😀\":1,\"！\":2}",
+      "digest": "sha256:820c65d192ed794d75cd7a01b132dcfba887c88a42d42b2e7c5e4d875192664d"
+    },
+    {
+      "name": "NFC normalisation of values and keys",
+      "input": "{\"e\\u0301\":\"e\\u0301\"}",
+      "text": "{\"é\":\"é\"}",
+      "digest": "sha256:e8b55b29bf172acb65a8ec20d1762cd9d6112c7abd6799895503d9151b8f42ab"
+    },
+    {
+      "name": "nested arrays and nulls",
+      "input": "[null,[true,false,[]],{\"a\":null}]",
+      "text": "[null,[true,false,[]],{\"a\":null}]",
+      "digest": "sha256:82a23a4f6f4a08590569a51c894ee46f900e14227e8d55ff02111e87bbad1872"
+    },
+    {
+      "name": "refused: keys that collide after NFC",
+      "input": "{\"\\u00e9\":1,\"e\\u0301\":2}",
+      "refused": true
+    }
+  ]
+}

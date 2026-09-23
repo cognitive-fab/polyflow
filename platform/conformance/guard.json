@@ -1,0 +1,807 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "comms",
+      "policy": {
+        "policy": "comms",
+        "version": 1,
+        "effects": {
+          "fetch_url": {
+            "kind": "fetch",
+            "class": "none",
+            "labels": [
+              "reads-untrusted"
+            ]
+          },
+          "read_crm": {
+            "kind": "read",
+            "class": "none",
+            "labels": [
+              "reads-private"
+            ]
+          },
+          "ask_approval": {
+            "kind": "approval",
+            "class": "none",
+            "labels": []
+          },
+          "slack_send": {
+            "kind": "post",
+            "class": "irreversible",
+            "labels": [
+              "egress"
+            ]
+          },
+          "send_email": {
+            "kind": "email",
+            "class": "irreversible",
+            "labels": [
+              "egress"
+            ]
+          },
+          "redact": {
+            "kind": "redact",
+            "class": "none",
+            "labels": []
+          },
+          "llm": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          }
+        },
+        "unlabelled": "report",
+        "rules": [
+          {
+            "id": "no-post-without-approval",
+            "type": "requires-prior",
+            "outcome": "deny",
+            "guards": "post",
+            "prior": "approval",
+            "consume": true,
+            "bind": "any"
+          },
+          {
+            "id": "at-most-two-posts",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "post",
+            "n": 2
+          },
+          {
+            "id": "no-post-after-cancel",
+            "type": "never-after",
+            "outcome": "deny",
+            "guards": "post",
+            "after": {
+              "signal": "CANCEL"
+            }
+          },
+          {
+            "id": "trifecta",
+            "type": "trifecta",
+            "outcome": "escalate",
+            "declassify": "redact"
+          },
+          {
+            "id": "draft-before-email",
+            "type": "implies-prior",
+            "outcome": "deny",
+            "guards": "email",
+            "prior": "model",
+            "consume": false,
+            "bind": "any"
+          },
+          {
+            "id": "tool-calls",
+            "type": "budget",
+            "outcome": "deny",
+            "metric": "effects",
+            "max": 12,
+            "kinds": null
+          },
+          {
+            "id": "tokens",
+            "type": "budget",
+            "outcome": "deny",
+            "metric": "tokens",
+            "max": 1000,
+            "kinds": [
+              "model"
+            ],
+            "from": "usage.total_tokens"
+          },
+          {
+            "id": "post-rate",
+            "type": "rate",
+            "outcome": "deny",
+            "guards": "post",
+            "n": 1,
+            "perMs": 10000
+          }
+        ],
+        "escalation": {
+          "role": "approver",
+          "timeoutMs": 60000
+        },
+        "digest": "sha256:70d45990d0bea712c6e7c22db0d558a7107d835537a0fdcfe9ee302c3b043f44",
+        "kinds": [
+          "approval",
+          "email",
+          "fetch",
+          "model",
+          "post",
+          "read",
+          "redact"
+        ],
+        "notes": []
+      },
+      "steps": [
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "slack_send",
+            "at": 1000,
+            "args": {
+              "text": "a"
+            },
+            "proposal": "p1"
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "no-post-without-approval"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:ace0f2fed9deb8890ce1b059e9e81e4c5f26ffd42883a3092d0f353e451290ba",
+          "stateDigest": "sha256:8dfe3442a4c122930f29a54e3b921fc581295a6a42f0f5499edbd454b47653e9"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "ask_approval",
+            "at": 2000,
+            "args": {},
+            "proposal": "p2"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:4a0fca5f847a47deeb64a312846343cf2d4ae4e6edee5027ca906f32646fb63b"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "ask_approval",
+            "ok": true
+          },
+          "stateDigest": "sha256:e5b9f5752d820f3fc4b98ff1324386d10cfa49387dea8a70742193f6250d754d"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "slack_send",
+            "at": 3000,
+            "args": {
+              "text": "a"
+            },
+            "proposal": "p3"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "no-post-without-approval",
+              "at-most-two-posts",
+              "no-post-after-cancel",
+              "trifecta",
+              "tool-calls",
+              "post-rate"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:e7925d7b7d9d08948e1667d4a57da0e9c19a4ca6dc0abd50b32f9eeb4d8e9a33"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "slack_send",
+            "ok": true
+          },
+          "stateDigest": "sha256:81fed4b313719927cfe637e13ffe7b905f9dcfbe87f0d70ed75f08d125a393d4"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "ask_approval",
+            "at": 4000,
+            "args": {},
+            "proposal": "p4"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:db76c6570ffc3b2b90b693184ab9828901d2ae85388ef33d9347bea094b7b3b2"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "ask_approval",
+            "ok": true
+          },
+          "stateDigest": "sha256:38d81a6e23c573b882d49a510a98c87004f0f8d62b17a1f0d9ad8b43e013b646"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "slack_send",
+            "at": 5000,
+            "args": {
+              "text": "b"
+            },
+            "proposal": "p5"
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "post-rate"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:e6cf69ffb548d12ace248229486ef7e4afb5827ce7a2975b3bc2c8fed122dade",
+          "stateDigest": "sha256:38d81a6e23c573b882d49a510a98c87004f0f8d62b17a1f0d9ad8b43e013b646"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "fetch_url",
+            "at": 20000,
+            "args": {
+              "url": "x"
+            },
+            "proposal": "p6"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:b2f85c1554e303568405c911e445e4c16e2abb6b9f604a0fe9ec422b8ecabbc8"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "fetch_url",
+            "ok": false
+          },
+          "stateDigest": "sha256:178cd69861618c338ce7ded9c858fba2e9cdb80670116b552cc40bdcb268ebb2"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "read_crm",
+            "at": 21000,
+            "args": {
+              "id": 1
+            },
+            "proposal": "p7"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:ca9b4f31fd006d0b9e584a77c7c08e957f2cc5c48b51d837611673e5fd0315e0"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "read_crm",
+            "ok": true
+          },
+          "stateDigest": "sha256:946a36d036c5fab421cb98e032d56eee8fadd29a66ffc13354a92f9611b7f0e1"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "llm",
+            "at": 22000,
+            "args": {
+              "q": 1
+            },
+            "proposal": "p8"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls",
+              "tokens"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:8132ca8f4d3f202a607dea00e0c061734931d3c1ec0cb8ccf23e3dd1c8b9b395"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "llm",
+            "ok": true,
+            "result": {
+              "usage": {
+                "total_tokens": 700
+              }
+            }
+          },
+          "stateDigest": "sha256:32214e80bd65ba299bb8b97a4a10e8fd27b3c3ca7f379c20e4ebdddda880c1de"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 23000,
+            "args": {
+              "to": "x"
+            },
+            "proposal": "p9"
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "trifecta"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:91ad7d5f4b43d05fafccbe08c27bf7c8df4d68e9ed6dc1a8802dcd71438136f4",
+          "stateDigest": "sha256:32214e80bd65ba299bb8b97a4a10e8fd27b3c3ca7f379c20e4ebdddda880c1de"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-p9",
+            "activity": "send_email",
+            "args": {
+              "to": "x"
+            },
+            "proposal": "p9",
+            "at": 24000
+          },
+          "stateDigest": "sha256:44906328be1cec89f22c3789e98079fcd3bf845867226ee080c64a1804c49082"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 24000,
+            "args": {
+              "to": "x"
+            },
+            "proposal": "p9"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "trifecta",
+              "draft-before-email",
+              "tool-calls"
+            ],
+            "approval": "ap-p9"
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:a163b0cf9d320954e08f36ba01f82488f4fc86d6c54f0798fe9bebf68ff9c019"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "redact",
+            "at": 25000,
+            "args": {},
+            "proposal": "p10"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:947fca483d6b374df1bd6e8956e991956e54991d9ab3e8714a8d66385d0618c6"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "redact",
+            "ok": true
+          },
+          "stateDigest": "sha256:0b559717a71645ba1e38890071d8f96967b83543a3935e78f58eb1506426892a"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 26000,
+            "args": {
+              "to": "y"
+            },
+            "proposal": "p11"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "trifecta",
+              "draft-before-email",
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:e675d1f1f2dcf662f1ebd124121c9aadc880e4841542b42fd2058c32be8cd06e"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "llm",
+            "at": 27000,
+            "args": {
+              "q": 2
+            },
+            "proposal": "p12"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls",
+              "tokens"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:431b555b38aa22a5ef344ef7ecc168f29cda13fbdf3ac686287f65d8135f3132"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "llm",
+            "ok": true,
+            "result": {
+              "usage": {
+                "total_tokens": -5
+              }
+            }
+          },
+          "stateDigest": "sha256:20f198892f023958cf5a57c0e659d1ba3481f354ab2e30d5b81d05e79e9652f0"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "llm",
+            "at": 28000,
+            "args": {
+              "q": 3
+            },
+            "proposal": "p13"
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "tokens"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:5f45b9aecaf4733867c3290e3257a5d952822354b1f4c63eeb36632609a51bdd",
+          "stateDigest": "sha256:20f198892f023958cf5a57c0e659d1ba3481f354ab2e30d5b81d05e79e9652f0"
+        },
+        {
+          "op": {
+            "op": "signal",
+            "name": "CANCEL",
+            "at": 29000
+          },
+          "stateDigest": "sha256:0721c361ebccdf137dfbae3c5d1868975542bbd3e374d43784b02828af67aa53"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "mystery_tool",
+            "at": 30000,
+            "args": {},
+            "proposal": "p14"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "unlabelled",
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:6cdf51c8dd7db475d060889eefa6a2d0a1b5fd3c96ec9b97c6b0d7edd8f95bb6"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "ask_approval",
+            "at": 31000,
+            "args": {},
+            "proposal": "p15"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:35e62ae792636486ed0de33184f163d3f202bd0eea825811326288f837479ecd"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "ask_approval",
+            "ok": true
+          },
+          "stateDigest": "sha256:fb026409599744b96137ccfe5bc211dad4a3114956de9efa42a3d8e1e8f73225"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "slack_send",
+            "at": 45000,
+            "args": {
+              "text": "c"
+            },
+            "proposal": "p16"
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "no-post-after-cancel",
+              "tool-calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:537567246c3ebab96c5546b9cd89d6a724cccfe5a83eeb4e3a5e3652b39b9787",
+          "stateDigest": "sha256:fb026409599744b96137ccfe5bc211dad4a3114956de9efa42a3d8e1e8f73225"
+        }
+      ]
+    },
+    {
+      "name": "strict",
+      "policy": {
+        "policy": "strict",
+        "version": 2,
+        "effects": {
+          "send_email": {
+            "kind": "email",
+            "class": "irreversible",
+            "labels": [
+              "egress"
+            ]
+          },
+          "llm": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          }
+        },
+        "unlabelled": "escalate",
+        "rules": [
+          {
+            "id": "approve-each-email",
+            "type": "requires-prior",
+            "outcome": "escalate",
+            "guards": "email",
+            "prior": "model",
+            "consume": true,
+            "bind": "per-effect"
+          },
+          {
+            "id": "calls",
+            "type": "budget",
+            "outcome": "deny",
+            "metric": "effects",
+            "max": 3,
+            "kinds": null
+          }
+        ],
+        "escalation": {
+          "role": "approver",
+          "timeoutMs": 1000
+        },
+        "digest": "sha256:d350ba19baaf7a89455451d5c8c88ca89ca87bd05c0ceac16b6967e7e6839d81",
+        "kinds": [
+          "email",
+          "model"
+        ],
+        "notes": []
+      },
+      "steps": [
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 1,
+            "args": {
+              "to": "a"
+            },
+            "proposal": "p1"
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "approve-each-email"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:0dc4a25555305c651b191d2b601e9f344ff006f517309e75c1315bde6e3b7283",
+          "stateDigest": "sha256:f08193529f2b7fae9a47fcaf3cef485b35ec43f13a280c3e65c1724bd2f54430"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-1",
+            "activity": "send_email",
+            "args": {
+              "to": "a"
+            },
+            "proposal": "p1",
+            "at": 2
+          },
+          "stateDigest": "sha256:99be37a81360ad1fdf1b5727a1536d0ff367e5f2723c7d0fbd87b833d62a9692"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 2,
+            "args": {
+              "to": "a"
+            },
+            "proposal": "p1"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "approve-each-email",
+              "calls"
+            ],
+            "approval": "ap-1"
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:003e3d36a0c5641bc74d07ac401f5d570b1c529c0ec1185d1bc415c38c7bdb94"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "send_email",
+            "at": 3,
+            "args": {
+              "to": "a"
+            },
+            "proposal": "p2"
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "approve-each-email"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:931de1f203cfd251623f9e32f2028e72aba06a134c87af8e384e3d4dcfc49915",
+          "stateDigest": "sha256:003e3d36a0c5641bc74d07ac401f5d570b1c529c0ec1185d1bc415c38c7bdb94"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "other_tool",
+            "at": 4,
+            "args": {},
+            "proposal": "p3"
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:a693caa24258a743e4317dd31087803f787e958a5685fa7fc690fde4462ef91d",
+          "stateDigest": "sha256:003e3d36a0c5641bc74d07ac401f5d570b1c529c0ec1185d1bc415c38c7bdb94"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-3",
+            "activity": "other_tool",
+            "args": {},
+            "proposal": "p3",
+            "at": 5
+          },
+          "stateDigest": "sha256:181abec2327ddf823a0d9095b75b6e8f09aa3e10db949e5cad960cd34b046058"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "other_tool",
+            "at": 5,
+            "args": {},
+            "proposal": "p3"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": "ap-3"
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:a572a3fd97bcaa120e22529d34bab52bd2cc6e54b691706c7ba0fa9f20e5c388"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "llm",
+            "at": 6,
+            "args": {},
+            "proposal": "p4"
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:efa3c823fa99aee8bb118cab56a628b87922cb6d809ae0dd7448ee6c9ded50cc"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "llm",
+            "at": 7,
+            "args": {},
+            "proposal": "p5"
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:cdc5e1ae90b8ef27ad60b3137497ad716202461347853f18a41c83f0dc759c93",
+          "stateDigest": "sha256:efa3c823fa99aee8bb118cab56a628b87922cb6d809ae0dd7448ee6c9ded50cc"
+        },
+        {
+          "op": {
+            "op": "void",
+            "id": "ap-3"
+          },
+          "stateDigest": "sha256:94d0bece12f37eff9fbfd902a656f6c078f5f51b64e042102c57917fb1babf7a"
+        }
+      ]
+    }
+  ]
+}

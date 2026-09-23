@@ -1,0 +1,16 @@
+{
+  "policy": "support-refunds",
+  "version": 1,
+  "unlabelled": "deny",
+  "routes": { "Tickets-stateless-call-tool-v2": "0.tool_name" },
+  "effects": {
+    "invoke_model_activity": { "kind": "model", "class": "none" },
+    "Tickets-stateless-list-tools": { "kind": "discover", "class": "none" },
+    "Tickets-stateless-call-tool-v2:read_ticket": { "kind": "read", "class": "none", "labels": ["reads-private"] },
+    "Tickets-stateless-call-tool-v2:issue_refund": { "kind": "refund", "class": "irreversible" }
+  },
+  "rules": [
+    { "id": "read-before-refund", "type": "requires-prior", "guards": "refund", "prior": "read" },
+    { "id": "one-refund", "type": "at-most", "guards": "refund", "n": 1 }
+  ]
+}

@@ -1,0 +1,362 @@
+{
+  "version": 1,
+  "rule": "routes: { activityType: dotted path into the argument list }; stored only when non-empty; routeTarget walks arrays by decimal index and objects by own key; a non-empty string value gives \"<type>:<value>\", anything else \"<type>:?\"",
+  "admitted": [
+    {
+      "name": "with routes",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\"0.tool_name\"}}",
+      "admitted": {
+        "policy": "support",
+        "version": 1,
+        "effects": {
+          "invoke_model_activity": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": [
+              "reads-private"
+            ]
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "routes": {
+          "Tickets-stateless-call-tool-v2": "0.tool_name"
+        },
+        "unlabelled": "deny",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:57dc3f3ac730f3eb1c937c1dcaf2b87bea9b0e49a91682638f60d45cee81f9bd",
+        "kinds": [
+          "model",
+          "read",
+          "refund"
+        ],
+        "notes": []
+      }
+    },
+    {
+      "name": "without routes: no routes key, digest unchanged",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}]}",
+      "admitted": {
+        "policy": "support",
+        "version": 1,
+        "effects": {
+          "invoke_model_activity": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": [
+              "reads-private"
+            ]
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "unlabelled": "deny",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:7c17eb9374b51a15b7fdef22ffbceff276e2b04a7f9cb7839db52d38a115167a",
+        "kinds": [
+          "model",
+          "read",
+          "refund"
+        ],
+        "notes": []
+      }
+    },
+    {
+      "name": "empty routes are not stored",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{}}",
+      "admitted": {
+        "policy": "support",
+        "version": 1,
+        "effects": {
+          "invoke_model_activity": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": [
+              "reads-private"
+            ]
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "unlabelled": "deny",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:7c17eb9374b51a15b7fdef22ffbceff276e2b04a7f9cb7839db52d38a115167a",
+        "kinds": [
+          "model",
+          "read",
+          "refund"
+        ],
+        "notes": []
+      }
+    },
+    {
+      "name": "two routes",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\"0.tool_name\",\"Other-call-tool\":\"0\"}}",
+      "admitted": {
+        "policy": "support",
+        "version": 1,
+        "effects": {
+          "invoke_model_activity": {
+            "kind": "model",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": [
+              "reads-private"
+            ]
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "routes": {
+          "Tickets-stateless-call-tool-v2": "0.tool_name",
+          "Other-call-tool": "0"
+        },
+        "unlabelled": "deny",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:eaa1a9f00020224626405792fc13cb24ed2707b717405fa3088debdb37550f96",
+        "kinds": [
+          "model",
+          "read",
+          "refund"
+        ],
+        "notes": []
+      }
+    }
+  ],
+  "refused": [
+    {
+      "name": "a path with a space",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\"0. tool_name\"}}"
+    },
+    {
+      "name": "an empty path",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\"\"}}"
+    },
+    {
+      "name": "a leading dot",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\".tool_name\"}}"
+    },
+    {
+      "name": "a bracket index",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":\"args[0]\"}}"
+    },
+    {
+      "name": "not a string",
+      "raw": "{\"policy\":\"support\",\"version\":1,\"unlabelled\":\"deny\",\"effects\":{\"invoke_model_activity\":{\"kind\":\"model\",\"class\":\"none\"},\"Tickets-stateless-call-tool-v2:read_ticket\":{\"kind\":\"read\",\"class\":\"none\",\"labels\":[\"reads-private\"]},\"Tickets-stateless-call-tool-v2:issue_refund\":{\"kind\":\"refund\",\"class\":\"irreversible\"}},\"rules\":[{\"id\":\"one-refund\",\"type\":\"at-most\",\"guards\":\"refund\",\"n\":1}],\"routes\":{\"Tickets-stateless-call-tool-v2\":0}}"
+    }
+  ],
+  "policy": {
+    "policy": "support",
+    "version": 1,
+    "effects": {
+      "invoke_model_activity": {
+        "kind": "model",
+        "class": "none",
+        "labels": []
+      },
+      "Tickets-stateless-call-tool-v2:read_ticket": {
+        "kind": "read",
+        "class": "none",
+        "labels": [
+          "reads-private"
+        ]
+      },
+      "Tickets-stateless-call-tool-v2:issue_refund": {
+        "kind": "refund",
+        "class": "irreversible",
+        "labels": []
+      }
+    },
+    "routes": {
+      "Tickets-stateless-call-tool-v2": "0.tool_name",
+      "Deep": "1.a.0.b",
+      "Top": "0"
+    },
+    "unlabelled": "deny",
+    "rules": [
+      {
+        "id": "one-refund",
+        "type": "at-most",
+        "outcome": "deny",
+        "guards": "refund",
+        "n": 1
+      }
+    ],
+    "escalation": null,
+    "digest": "sha256:54dc3cb87b48fd93ac9f4bcc87ebce1c4dbbe8c0d84f99b5a4ba469411cf1954",
+    "kinds": [
+      "model",
+      "read",
+      "refund"
+    ],
+    "notes": []
+  },
+  "target": [
+    {
+      "name": "tool name from the dataclass argument",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":\"issue_refund\",\"arguments\":{\"id\":\"T-1\"},\"factory_argument\":null,\"meta\":null}]",
+      "target": "Tickets-stateless-call-tool-v2:issue_refund"
+    },
+    {
+      "name": "another tool",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":\"read_ticket\",\"arguments\":null}]",
+      "target": "Tickets-stateless-call-tool-v2:read_ticket"
+    },
+    {
+      "name": "not routed",
+      "activityType": "invoke_model_activity",
+      "args": "[{\"tool_name\":\"issue_refund\"}]",
+      "target": "invoke_model_activity"
+    },
+    {
+      "name": "missing key",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"name\":\"issue_refund\"}]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "empty string",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":\"\"}]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "number value",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":7}]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "null value",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":null}]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "no arguments",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "args is not a list",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "{\"0\":{\"tool_name\":\"x\"}}",
+      "target": "Tickets-stateless-call-tool-v2:x"
+    },
+    {
+      "name": "a string is not walked",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[\"tool_name\"]",
+      "target": "Tickets-stateless-call-tool-v2:?"
+    },
+    {
+      "name": "deep path through arrays and objects",
+      "activityType": "Deep",
+      "args": "[0,{\"a\":[{\"b\":\"found\"}]}]",
+      "target": "Deep:found"
+    },
+    {
+      "name": "an object with a numeric key",
+      "activityType": "Deep",
+      "args": "[0,{\"a\":{\"0\":{\"b\":\"object key\"}}}]",
+      "target": "Deep:object key"
+    },
+    {
+      "name": "index past the end",
+      "activityType": "Deep",
+      "args": "[0,{\"a\":[]}]",
+      "target": "Deep:?"
+    },
+    {
+      "name": "top-level string argument",
+      "activityType": "Top",
+      "args": "[\"direct\"]",
+      "target": "Top:direct"
+    },
+    {
+      "name": "non-ASCII value",
+      "activityType": "Tickets-stateless-call-tool-v2",
+      "args": "[{\"tool_name\":\"réfund\"}]",
+      "target": "Tickets-stateless-call-tool-v2:réfund"
+    },
+    {
+      "name": "leading-zero index",
+      "activityType": "Lz",
+      "args": "[[\"a\",\"b\"]]",
+      "target": "Lz:b",
+      "routes": {
+        "Lz": "0.01"
+      }
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "rule": "each UTF-8 byte kept if [A-Za-z0-9_-], else ~ + two upper-case hex digits; an empty component is ~",
+  "cases": [
+    {
+      "run": {
+        "ns": "default",
+        "wf": "wf-1_A",
+        "run": "r-1"
+      },
+      "parts": [
+        "default",
+        "wf-1_A",
+        "r-1.jsonl"
+      ]
+    },
+    {
+      "run": {
+        "ns": "..",
+        "wf": "..",
+        "run": "r"
+      },
+      "parts": [
+        "~2E~2E",
+        "~2E~2E",
+        "r.jsonl"
+      ]
+    },
+    {
+      "run": {
+        "ns": ".",
+        "wf": "x%",
+        "run": "x~25"
+      },
+      "parts": [
+        "~2E",
+        "x~25",
+        "x~7E25.jsonl"
+      ]
+    },
+    {
+      "run": {
+        "ns": "a/b\\c",
+        "wf": "wf/é-1",
+        "run": ""
+      },
+      "parts": [
+        "a~2Fb~5Cc",
+        "wf~2F~C3~A9-1",
+        "~.jsonl"
+      ]
+    },
+    {
+      "run": {
+        "ns": "default",
+        "wf": "lone\ud800",
+        "run": "📦"
+      },
+      "parts": [
+        "default",
+        "lone~EF~BF~BD",
+        "~F0~9F~93~A6.jsonl"
+      ]
+    }
+  ]
+}

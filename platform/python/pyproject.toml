@@ -1,0 +1,29 @@
+[project]
+name = "polyflow-temporal"
+version = "0.1.0"
+description = "Polyflow for Temporal: a worker plugin that records and guards what agents on Temporal are allowed to do."
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = ["temporalio>=1.33"]
+
+[project.optional-dependencies]
+# Signing ledger heads (PolyflowPlugin(signing_key=...)). Without it a configured
+# key is refused at construction, never silently left unsigned.
+signing = ["cryptography>=41"]
+# The S2 sample (examples/openai_agents) and its test: the OpenAI Agents SDK
+# integration. It imports the OpenTelemetry contrib, which its own extra omits.
+# It pulls MPL-2.0 packages (certifi, tqdm): they stay confined to this extra,
+# out of the core install and every other extra (licence audit L7).
+openai-agents = ["temporalio[openai-agents,opentelemetry]>=1.33"]
+# G2 from Python (plan P7.4): certified machines in QuickJS. `wasmtime` runs the
+# vendored QuickJS-NG wasm (the sandbox); `quickjs` is the native fallback.
+g2 = ["wasmtime>=30"]
+g2-native = ["quickjs>=1.19"]
+
+[tool.setuptools.package-data]
+polyflow_temporal = ["vendor/quickjs-wasi/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

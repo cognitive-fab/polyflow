@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "run": {
+    "ns": "acme",
+    "wf": "wf/é-1",
+    "run": "r-1"
+  },
+  "appends": [
+    [
+      "admission",
+      {
+        "level": "guard",
+        "policy": {
+          "name": "comms",
+          "version": 1,
+          "digest": "sha256:00"
+        }
+      },
+      1000
+    ],
+    [
+      "proposal",
+      {
+        "source": "workflow",
+        "action": "slack_send",
+        "dataDigest": "sha256:6193c97585a0f731ce7b500bb69d2476816afb14c8d95ac8e6e865f680e9e438"
+      },
+      1001
+    ],
+    [
+      "verdict",
+      {
+        "proposal": "p1",
+        "outcome": "denied",
+        "rules": [
+          "no-post-without-approval"
+        ],
+        "reason": "x"
+      },
+      1001
+    ],
+    [
+      "observation",
+      {
+        "effect": "e3",
+        "ok": true,
+        "resultDigest": "sha256:9f29a130438b81170b92a42650f9a94291ecad60bd47af2a3886e75f7f728725"
+      },
+      1002
+    ],
+    [
+      "closure",
+      {
+        "outcome": "completed"
+      },
+      1003
+    ]
+  ],
+  "events": [
+    {
+      "v": 1,
+      "run": {
+        "ns": "acme",
+        "wf": "wf/é-1",
+        "run": "r-1"
+      },
+      "seq": 0,
+      "kind": "admission",
+      "at": 1000,
+      "body": {
+        "level": "guard",
+        "policy": {
+          "name": "comms",
+          "version": 1,
+          "digest": "sha256:00"
+        }
+      },
+      "prev": "sha256:f018ec5b058f6af0bbd67205443dadb0b1836868de9dc4f6dfe973285df68f15",
+      "hash": "sha256:073b36aa339e83a79e90f3a5542e6db086bf2bcedcaab0d9d578931341519f5a"
+    },
+    {
+      "v": 1,
+      "run": {
+        "ns": "acme",
+        "wf": "wf/é-1",
+        "run": "r-1"
+      },
+      "seq": 1,
+      "kind": "proposal",
+      "at": 1001,
+      "body": {
+        "source": "workflow",
+        "action": "slack_send",
+        "dataDigest": "sha256:6193c97585a0f731ce7b500bb69d2476816afb14c8d95ac8e6e865f680e9e438"
+      },
+      "prev": "sha256:073b36aa339e83a79e90f3a5542e6db086bf2bcedcaab0d9d578931341519f5a",
+      "hash": "sha256:ca0ed6023746da9f22b70f1c1a2747ea6a84f92da7af5d48960c99e3088b2449"
+    },
+    {
+      "v": 1,
+      "run": {
+        "ns": "acme",
+        "wf": "wf/é-1",
+        "run": "r-1"
+      },
+      "seq": 2,
+      "kind": "verdict",
+      "at": 1001,
+      "body": {
+        "proposal": "p1",
+        "outcome": "denied",
+        "rules": [
+          "no-post-without-approval"
+        ],
+        "reason": "x"
+      },
+      "prev": "sha256:ca0ed6023746da9f22b70f1c1a2747ea6a84f92da7af5d48960c99e3088b2449",
+      "hash": "sha256:1c1163fea0e371438c62d90a92dca7206a7bdf72991ec7322c25546305f1cf02"
+    },
+    {
+      "v": 1,
+      "run": {
+        "ns": "acme",
+        "wf": "wf/é-1",
+        "run": "r-1"
+      },
+      "seq": 3,
+      "kind": "observation",
+      "at": 1002,
+      "body": {
+        "effect": "e3",
+        "ok": true,
+        "resultDigest": "sha256:9f29a130438b81170b92a42650f9a94291ecad60bd47af2a3886e75f7f728725"
+      },
+      "prev": "sha256:1c1163fea0e371438c62d90a92dca7206a7bdf72991ec7322c25546305f1cf02",
+      "hash": "sha256:8eeb9acff96a428a6af3aa103c4a742cfc0b9c377ac5546520fa6d94a06e2c1c"
+    },
+    {
+      "v": 1,
+      "run": {
+        "ns": "acme",
+        "wf": "wf/é-1",
+        "run": "r-1"
+      },
+      "seq": 4,
+      "kind": "closure",
+      "at": 1003,
+      "body": {
+        "outcome": "completed"
+      },
+      "prev": "sha256:8eeb9acff96a428a6af3aa103c4a742cfc0b9c377ac5546520fa6d94a06e2c1c",
+      "hash": "sha256:20a85a5f1ded47f246bf77891033957286cdc3c978a78a974d89d7c4ee04a242"
+    }
+  ]
+}

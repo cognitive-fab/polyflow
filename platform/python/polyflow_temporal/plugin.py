@@ -1,0 +1,795 @@
+"""PolyflowPlugin for the Temporal Python SDK — G0 observe and G1 guard.
+
+The Python half of the platform (technical spec §10): the same ledger and the
+same guard as the TypeScript plugin, ported and pinned byte for byte by the
+conformance corpus, so a ledger written by a Python worker verifies under the
+TypeScript `polyflow verify`, and a policy decides the same effect the same
+way in both languages. Policies arrive admitted by the TypeScript toolchain.
+
+Inside the workflow only pure things run: the guard decides, the ledger
+chains, and the delta rides on the headers of activities the workflow was
+going to schedule anyway. Signing and export happen in the activity
+interceptor, where I/O belongs. Rules carried over from the TypeScript
+reviews:
+
+- a workflow TASK failure (an exception the SDK does not turn into a workflow
+  failure: not a FailureError, not a declared ``failure_exception_types``)
+  issues no command of ours, so the fixed code still replays;
+- a close is a return, a Temporal failure, a declared failure type, a
+  cancellation, or a Continue-as-New: each ends with a closure;
+- bookkeeping never changes the workflow's outcome: a failed flush is
+  swallowed and the missing closure is what a verifier reports;
+- a chain is keyed by the run that started it, and handed forward, with the
+  guard's state, only by Continue-as-New;
+- every outgoing effect is governed: activities, local activities, child
+  workflows, signals to other workflows, and Nexus operations;
+- failure text is redacted before it is recorded; results are read as they
+  travel (the payload converter's JSON), so a dataclass spends a budget.
+
+Not yet in the Python plugin (tracked in the plan): escalation to a person
+(an escalation is refused here, never silently allowed), governed workflows
+(G2), the memo head.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import inspect
+import json
+import os
+import re
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+
+import temporalio.activity
+import temporalio.workflow
+import temporalio.converter
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError, FailureError, is_cancelled_exception
+from temporalio.plugin import SimplePlugin
+from temporalio.worker import (
+    ActivityInboundInterceptor,
+    ContinueAsNewInput,
+    ExecuteActivityInput,
+    ExecuteWorkflowInput,
+    HandleSignalInput,
+    Interceptor,
+    SignalChildWorkflowInput,
+    SignalExternalWorkflowInput,
+    StartActivityInput,
+    StartChildWorkflowInput,
+    StartLocalActivityInput,
+    StartNexusOperationInput,
+    WorkflowInboundInterceptor,
+    WorkflowInterceptorClassInput,
+    WorkflowOutboundInterceptor,
+)
+
+from .canonical import digest
+from .ledger import Ledger, genesis, verify_chain
+from .redact import redact
+from .sealed import check_header_key, open_header, seal_header
+from .rules import Guard, check_admitted, classify, route_target
+
+LEDGER_HEADER = "polyflow-ledger"
+HEAD_HEADER = "polyflow-ledger-head"
+FLUSH_ACTIVITY = "polyflow.flush"
+CLOSE_FLUSHES = 3
+
+
+def _converter():
+    try:
+        return temporalio.workflow.payload_converter()
+    except Exception:  # noqa: BLE001 — outside a workflow (tests, the activity side)
+        return temporalio.converter.default().payload_converter
+
+
+def _jsonable(value):
+    """The value as it travels: JSON-shaped, as the TypeScript side sees it.
+
+    A Python activity returns a dataclass or a pydantic model far more often
+    than a dict (review PY3). The worker's own payload converter says what it
+    is on the wire, so a budget reads the same fields in both languages.
+    """
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    try:
+        conv = _converter()
+        return conv.from_payload(conv.to_payload(value))
+    except Exception:  # noqa: BLE001 — fall back to the common shapes
+        pass
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump(mode="json")
+        except Exception:  # noqa: BLE001
+            return None
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    return None
+
+
+def _digest_json(value) -> str:
+    try:
+        return digest(value)
+    except Exception:  # noqa: BLE001 — a digest must never fail the workflow
+        return "sha256:unhashable"
+
+
+def _digest_of(value) -> str:
+    return _digest_json(_jsonable(value))
+
+
+def _args_digest(args) -> str:
+    return _digest_of(list(args))
+
+
+def _failure_text(err) -> str:
+    """Failure text for the record: redacted before it is written, then truncated (review PY2)."""
+    if isinstance(err, asyncio.CancelledError):
+        return "cancelled"
+    cause = getattr(err, "cause", None) or err
+    msg = getattr(cause, "message", None)
+    if not isinstance(msg, str) or not msg:
+        msg = str(cause) or ("cancelled" if is_cancelled_exception(err) else "failed")
+    return redact(msg, 200)
+
+
+def _now_ms() -> int:
+    return int(temporalio.workflow.time() * 1000)
+
+
+def _runtime():
+    try:
+        return temporalio.workflow._Runtime.maybe_current()  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _evicting() -> bool:
+    """The worker is tearing the workflow out of its cache: not a close of the workflow."""
+    return bool(getattr(_runtime(), "_deleting", False))
+
+
+def _closes_workflow(err: BaseException) -> bool:
+    """Does this exception close the WORKFLOW (not just fail its task)? Asks the SDK,
+    so `workflow_failure_exception_types` and `failure_exception_types` count (review D1)."""
+    if isinstance(err, asyncio.CancelledError):
+        return True  # the SDK turns it into a Temporal CancelledError, a failure
+    fn = getattr(_runtime(), "workflow_is_failure_exception", None)
+    if callable(fn):
+        try:
+            return bool(fn(err))
+        except Exception:  # noqa: BLE001
+            pass
+    return isinstance(err, (FailureError, asyncio.TimeoutError))
+
+
+def _outcome_of(err: BaseException) -> str:
+    requested = getattr(_runtime(), "_cancel_reason", True) is not None
+    return "cancelled" if requested and is_cancelled_exception(err) else "failed"
+
+
+class _Run:
+    """Per-execution state: the ledger and the guard. Pure; lives in workflow code."""
+
+    def __init__(self, config: dict, resume: dict | None = None):
+        info = temporalio.workflow.info()
+        self.config = config
+        self.policy = config.get("policy")
+        self.guard = Guard(self.policy) if self.policy else None
+        self.state = self.guard.init() if self.guard else None
+        if resume:
+            # The chain is handed over by Continue-as-New, not restarted: same
+            # identity, same head, and the guard's state (budgets, at-most, taint,
+            # rate windows) belongs to the chain, not to one execution (review GC).
+            self.ledger = Ledger(resume["run"], {"seq": resume["seq"], "hash": resume["hash"]})
+            if self.guard and isinstance(resume.get("guard"), dict):
+                self.state = resume["guard"]
+        else:
+            self.ledger = Ledger({"ns": info.namespace, "wf": info.workflow_id, "run": info.run_id})
+            admission = {"level": config["level"], "policy": None}
+            if self.policy:
+                admission["policy"] = {"name": self.policy["policy"], "version": self.policy["version"], "digest": self.policy["digest"]}
+            admission["execution"] = {"runId": info.run_id, "attempt": info.attempt}
+            self.ledger.append("admission", admission, _now_ms())
+        self.flushing = False
+        self.closed = False
+
+    def append(self, kind, body):
+        return None if self.closed else self.ledger.append(kind, body, _now_ms())
+
+    def close(self, outcome: str):
+        """Append the closure and stop recording: the closure is this execution's last event."""
+        if not self.closed:
+            self.append("closure", {"outcome": outcome})
+            self.closed = True
+
+    def sealed(self, value, purpose: str, seq: int):
+        """A header body, sealed under the worker's data key when one is configured
+        (plan P2.6; NFR-7): the same envelope the TypeScript plugin writes."""
+        key = self.config.get("header_key")
+        if not key:
+            return value
+        return seal_header(value, key, run_id=temporalio.workflow.info().run_id, purpose=purpose, seq=seq)
+
+    def carry(self, headers):
+        events = self.ledger.drain()
+        if not events:
+            return headers
+        head = self.ledger.head()
+        payload = _converter().to_payload(self.sealed({"events": events, "head": head}, "ledger", head["seq"]))
+        return {**headers, LEDGER_HEADER: payload}
+
+
+def _settled(observe):
+    """A done-callback recording how an effect's task ended, cancellation included (review PY5)."""
+    def cb(task):
+        if task.cancelled():
+            observe(False, err=asyncio.CancelledError())
+            return
+        err = task.exception()
+        if err is not None:
+            observe(False, err=err)
+        else:
+            observe(True, task.result())
+    return cb
+
+
+class _Outbound(WorkflowOutboundInterceptor):
+    def __init__(self, next: WorkflowOutboundInterceptor, run_ref: list):
+        super().__init__(next)
+        self._run_ref = run_ref
+
+    def _govern(self, via: str, target: str, args, *, listed: bool = True):
+        """Record an outgoing effect and decide it. Returns the observer for its outcome,
+        or raises the refusal, which the workflow reads like any tool error.
+
+        ``args`` is the call's argument list (or, ``listed=False``, its single
+        input), read as it travels. A policy may ROUTE an activity that carries
+        many tools (the OpenAI Agents SDK's ``<server>-call-tool-v2``): it is then
+        classified by the value at the route's path in the arguments (P7.3a)."""
+        run: _Run = self._run_ref[0]
+        shaped = _jsonable(list(args) if listed else args)
+        a_digest = _digest_json(shaped)
+        routed = route_target(run.policy, target, shaped if listed else None) if run.policy else target
+        cls = classify(run.policy, routed) if run.policy else {"kind": target, "class": "unlabelled", "labels": [], "declared": True}
+        at = _now_ms()
+        proposal = run.append("proposal", {"source": "workflow", "action": target, "dataDigest": a_digest})
+        pid = f"p{proposal['seq']}" if proposal else "p-closed"
+        c = {**cls, "target": target, "argsDigest": a_digest, "at": at, "proposal": pid}
+        d = run.guard.decide(run.state, c) if run.guard else {"outcome": "allow", "rules": []}
+        if d["outcome"] != "allow":
+            # An escalation needs a person, and this build has no inbox: refuse, never allow.
+            message = d.get("message") or f"denied by {', '.join(d['rules'])}"
+            if d["outcome"] == "escalate":
+                message = f"escalation required ({message}); this worker cannot ask a person yet, so the effect is refused"
+            run.append("verdict", {"proposal": pid, "outcome": "denied", "rules": d["rules"], "witness": d.get("witness"), "reason": message})
+            raise ApplicationError(message, d.get("witness"), type="PolyflowDenied", non_retryable=True)
+        run.append("verdict", {"proposal": pid, "outcome": "allowed", "rules": d["rules"]})
+        if run.guard:
+            run.state = run.guard.commit(run.state, c, d)
+        guard_seq = run.state["seq"] if run.guard else None
+        info = temporalio.workflow.info()
+        eid = f"e{run.ledger.head()['seq'] + 1}"
+        run.append("effect", {"id": eid, "proposal": pid, "kind": cls["kind"], "class": cls["class"], "via": via,
+                              "activityType": target, **({"route": routed} if routed != target else {}), "argsDigest": a_digest, "idempotencyKey": f"{info.workflow_id}/{info.run_id}/{target}/{pid}"})
+
+        def observe(ok, result=None, err=None):
+            if ok:
+                run.append("observation", {"effect": eid, "ok": True, "resultDigest": _digest_of(result)})
+            else:
+                run.append("observation", {"effect": eid, "ok": False, "error": _failure_text(err)})
+            if run.guard:
+                run.state = run.guard.observe(run.state, cls["kind"], bool(ok), labels=cls["labels"],
+                                              result=_jsonable(result) if ok else None, seq=guard_seq)
+
+        return observe
+
+    def start_activity(self, input: StartActivityInput):
+        run: _Run = self._run_ref[0]
+        if run.flushing and input.activity == FLUSH_ACTIVITY:
+            return self.next.start_activity(dataclasses.replace(input, headers=run.carry(input.headers)))
+        observe = self._govern("activity", input.activity, input.args)
+        handle = self.next.start_activity(dataclasses.replace(input, headers=run.carry(input.headers)))
+        handle.add_done_callback(_settled(observe))
+        return handle
+
+    def start_local_activity(self, input: StartLocalActivityInput):
+        # Local activities record a marker, not their headers: nothing rides here.
+        observe = self._govern("local-activity", input.activity, input.args)
+        handle = self.next.start_local_activity(input)
+        handle.add_done_callback(_settled(observe))
+        return handle
+
+    # One workflow starting, signalling or calling another is an effect like
+    # any other (FR-GRD.1; review PY1): otherwise an obvious way around a policy.
+
+    async def start_child_workflow(self, input: StartChildWorkflowInput):
+        # Only activities carry the ledger: a child's start header reaches history, never the sink.
+        observe = self._govern("child-workflow", input.workflow, input.args)
+        try:
+            handle = await self.next.start_child_workflow(input)
+        except BaseException as err:
+            observe(False, err=err)
+            raise
+        handle.add_done_callback(_settled(observe))  # the CHILD's outcome, not its start
+        return handle
+
+    async def _signal(self, input, send):
+        observe = self._govern("signal", f"signal:{input.signal}", input.args)
+        try:
+            await send(input)
+        except BaseException as err:
+            observe(False, err=err)
+            raise
+        observe(True, None)
+
+    async def signal_external_workflow(self, input: SignalExternalWorkflowInput) -> None:
+        await self._signal(input, self.next.signal_external_workflow)
+
+    async def signal_child_workflow(self, input: SignalChildWorkflowInput) -> None:
+        await self._signal(input, self.next.signal_child_workflow)
+
+    async def start_nexus_operation(self, input: StartNexusOperationInput):
+        observe = self._govern("nexus", f"nexus:{input.service}/{input.operation_name}", input.input, listed=False)
+        try:
+            handle = await self.next.start_nexus_operation(input)
+        except BaseException as err:
+            observe(False, err=err)
+            raise
+        task = getattr(handle, "_task", None)  # the SDK's handle wraps the operation's task
+        if isinstance(task, asyncio.Future):
+            task.add_done_callback(_settled(observe))
+        return handle
+
+    def continue_as_new(self, input: ContinueAsNewInput):
+        # The chain is handed over, not restarted: close this execution's part,
+        # then give the next execution the head, the chain's identity and the
+        # guard's state. The flush happens in execute_workflow, on the way out.
+        run: _Run = self._run_ref[0]
+        if run is not None and not run.closed:
+            run.close("continued-as-new")
+            carried = {"run": dict(run.ledger.run), **run.ledger.head()}
+            if run.guard:
+                carried["guard"] = run.state
+            carried = run.sealed(carried, "head", carried["seq"])
+            input = dataclasses.replace(input, headers={**(input.headers or {}), HEAD_HEADER: _converter().to_payload(carried)})
+        self.next.continue_as_new(input)
+
+
+def _make_inbound(config: dict):
+    class _Inbound(WorkflowInboundInterceptor):
+        def init(self, outbound: WorkflowOutboundInterceptor) -> None:
+            self._run_ref: list = [None]
+            super().init(_Outbound(outbound, self._run_ref))
+
+        async def _flush(self, run: _Run) -> bool:
+            """Carry everything still pending. Never raises: bookkeeping never changes the outcome."""
+            for _ in range(CLOSE_FLUSHES):
+                if run.ledger.pending() == 0:
+                    return True
+                run.flushing = True
+                try:
+                    handle = temporalio.workflow.start_activity(
+                        FLUSH_ACTIVITY, {"head": run.ledger.head()}, start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=5))
+                except BaseException:  # noqa: BLE001
+                    return False
+                finally:
+                    run.flushing = False
+                try:
+                    await asyncio.shield(handle)
+                except BaseException:  # noqa: BLE001
+                    return False
+            return run.ledger.pending() == 0
+
+        async def _close(self, run: _Run, outcome: str):
+            run.close(outcome)
+            await self._flush(run)
+
+        async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
+            info = temporalio.workflow.info()
+            resume = None
+            # Accept a handed-over head only from a real Continue-as-New: a client
+            # could otherwise start a run mid-chain with no admission.
+            if info.continued_run_id and (input.headers or {}).get(HEAD_HEADER) is not None:
+                try:
+                    resume = _converter().from_payload(input.headers[HEAD_HEADER], dict)
+                except Exception:  # noqa: BLE001 — an unreadable hand-over starts a fresh chain
+                    resume = None
+                if resume is not None:
+                    # A sealed head that does not open (tampered, transplanted from
+                    # another run, unknown key) fails the workflow TASK, as in TS: it
+                    # never silently restarts the chain and resets the guard.
+                    resume = open_header(resume, config.get("header_keys") or {},
+                                         expect={"runId": info.continued_run_id, "purpose": "head"})
+            run = _Run(config, resume)
+            self._run_ref[0] = run
+            try:
+                result = await super().execute_workflow(input)
+            except temporalio.workflow.ContinueAsNewError:
+                run.close("continued-as-new")  # normally already closed by continue_as_new
+                await self._flush(run)
+                raise
+            except BaseException as err:
+                # Only what closes the workflow is closed here: a cancellation, a
+                # Temporal failure, or a type the worker or workflow declared a
+                # failure. Anything else fails the workflow TASK: we add no command,
+                # so the fixed code still replays (review D1). Eviction is neither.
+                if not _evicting() and _closes_workflow(err):
+                    await self._close(run, _outcome_of(err))
+                raise
+            await self._close(run, "completed")
+            return result
+
+        async def handle_signal(self, input: HandleSignalInput) -> None:
+            run = self._run_ref[0]
+            if run is not None:
+                run.append("proposal", {"source": "signal", "action": input.signal, "dataDigest": _args_digest(input.args)})
+                if run.guard:
+                    run.state = run.guard.signal(run.state, input.signal, _now_ms())
+            try:
+                return await super().handle_signal(input)
+            except temporalio.workflow.ContinueAsNewError:
+                if run is not None:
+                    run.close("continued-as-new")
+                    await self._flush(run)
+                raise
+
+    return _Inbound
+
+
+# ---- the activity side: export and sign ---------------------------------------
+
+def _load_signer(key: dict):
+    """The Ed25519 key a worker signs heads with. A configured key that cannot sign
+    is an error, never a silently unsigned ledger (install `polyflow-temporal[signing]`)."""
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    except ImportError as err:
+        raise ImportError("signing_key is set but the 'cryptography' package is not installed: "
+                          "pip install 'polyflow-temporal[signing]'") from err
+    if not isinstance(key, dict) or not key.get("keyId") or not key.get("privateKeyPem"):
+        raise ValueError("signing_key needs { keyId, privateKeyPem } (as `polyflow keygen` writes it)")
+    pk = load_pem_private_key(key["privateKeyPem"].encode(), password=None)
+    if not isinstance(pk, Ed25519PrivateKey):
+        raise ValueError(f"signing key '{key['keyId']}' is not an Ed25519 key")
+    return pk
+
+
+def head_message(run: dict, head: dict) -> bytes:
+    """The bytes a head signature covers: the TypeScript `headMessage`, byte for byte."""
+    return f"polyflow-head\n{run['ns']}\n{run['wf']}\n{run['run']}\n{head['seq']}\n{head['hash']}".encode()
+
+
+def _sign(run: dict, head: dict, key: dict | None):
+    if not key:
+        return None
+    import base64
+    sig = _load_signer(key).sign(head_message(run, head))
+    return {"run": run, "seq": head["seq"], "hash": head["hash"], "keyId": key["keyId"], "alg": "ed25519", "sig": base64.b64encode(sig).decode()}
+
+
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _jsonl(value) -> str:
+    """One JSON line, as JSON.stringify writes it: non-ASCII raw, a lone surrogate
+    (redaction can truncate between the halves of a pair, as TS does) escaped."""
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", text)
+
+
+def _no_write() -> dict:
+    return {"written": 0, "skipped": 0, "conflicts": []}
+
+
+def partition_delta(events: list, held) -> dict:
+    """Split a delta against what a sink holds for its run (the TS ``partitionDelta``).
+
+    ``held(seq)`` returns ``{"hash", "prev"}`` or None. A different event at a
+    held seq is a conflict; a new event that does not chain from the held event
+    before it, or that a held event after it does not chain from, is a fork.
+    Either way the delta is refused WHOLE: nothing of it is written, so a fork
+    is never stored on top of the real chain (P6-P8 SV6; P9 SEC-PY1).
+    """
+    fresh, conflicts, skipped = [], [], 0
+    for e in events:
+        had = held(e["seq"])
+        if had is None:
+            fresh.append(e)
+        elif had["hash"] == e["hash"]:
+            skipped += 1
+        else:
+            conflicts.append(e["seq"])
+    if not conflicts:
+        is_fresh = {e["seq"] for e in fresh}
+        for e in fresh:
+            before = {"hash": genesis(e["run"])} if e["seq"] == 0 else held(e["seq"] - 1)
+            if before and (e["seq"] - 1) not in is_fresh and e["prev"] != before["hash"]:
+                conflicts.append(e["seq"])
+            after = None if (e["seq"] + 1) in is_fresh else held(e["seq"] + 1)
+            if after and after.get("prev") is not None and after["prev"] != e["hash"]:
+                conflicts.append(e["seq"] + 1)
+    if conflicts:
+        return {"fresh": [], "skipped": 0, "conflicts": sorted(set(conflicts))}
+    return {"fresh": fresh, "skipped": skipped, "conflicts": []}
+
+
+def _contiguous_head(seen: dict):
+    seq = -1
+    while seq + 1 in seen:
+        seq += 1
+    return None if seq < 0 else {"seq": seq, "hash": seen[seq]["hash"]}
+
+
+_SAFE_CHAR = re.compile(r"[A-Za-z0-9_-]")
+
+
+def safe_component(s) -> str:
+    """A path component that cannot escape or collide: every UTF-8 byte outside
+    [A-Za-z0-9_-] (``.``, ``~`` and ``%`` included) becomes ``~`` + two upper-case
+    hex digits; an empty component is ``~``. Injective, and never ``.``/``..`` (P9 SEC-FS1/PY2).
+    The TypeScript file sink uses the same encoding, so both name files alike."""
+    # Node's Buffer.from(s, 'utf-8') writes a lone surrogate as U+FFFD: so do we.
+    data = "".join("�" if 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in str(s)).encode("utf-8")
+    return "".join(chr(b) if _SAFE_CHAR.fullmatch(chr(b)) else f"~{b:02X}" for b in data) or "~"
+
+
+class FileSink:
+    """JSONL per run, the same layout as the TypeScript fileSink, so `polyflow verify` reads it.
+
+    Idempotent on (run, seq): an event it already holds is skipped if identical.
+    A delta with a different event at a held seq, or one that forks the held
+    chain, is refused whole and REPORTED (``{"conflicts": [seq, ...]}``): that is
+    what tampering, or a split brain, looks like. One writer process per run
+    directory, as in TypeScript.
+    """
+
+    def __init__(self, root: str | os.PathLike):
+        self.root = Path(root)
+        self._known: dict = {}  # (ns, wf, run) -> {seq: {"hash", "prev"}}
+
+    _safe = staticmethod(safe_component)
+
+    def paths(self, run: dict):
+        root = self.root.resolve()
+        d = root / safe_component(run["ns"]) / safe_component(run["wf"])
+        ev, hd = d / f"{safe_component(run['run'])}.jsonl", d / f"{safe_component(run['run'])}.heads.jsonl"
+        for p in (d, ev, hd):
+            if root not in p.resolve().parents:
+                raise ValueError(f"ledger path for {run!r} resolves outside the sink root: refused")
+        return d, ev, hd
+
+    @staticmethod
+    def _read_jsonl(path: Path) -> list:
+        out = []
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    try:
+                        out.append(json.loads(line))
+                    except ValueError:
+                        continue  # non-strict, as the TS sink: a verifier reads strictly
+        return out
+
+    def _seen(self, run: dict) -> dict:
+        k = (run["ns"], run["wf"], run["run"])
+        if k not in self._known:
+            # Only this run's events count, whatever else the file holds.
+            self._known[k] = {e["seq"]: {"hash": e["hash"], "prev": e.get("prev")}
+                              for e in self._read_jsonl(self.paths(run)[1])
+                              if isinstance(e, dict) and e.get("run") == run and isinstance(e.get("seq"), int)}
+        return self._known[k]
+
+    def write(self, events: list, signed) -> dict:
+        if not events:
+            return _no_write()
+        run = events[0]["run"]
+        seen = self._seen(run)
+        d, ev, hd = self.paths(run)
+        part = partition_delta(events, seen.get)
+        fresh = part["fresh"]
+        if fresh:
+            d.mkdir(parents=True, exist_ok=True)
+            for e in fresh:
+                seen[e["seq"]] = {"hash": e["hash"], "prev": e["prev"]}
+            with ev.open("a", encoding="utf-8") as f:
+                f.write("".join(_jsonl(e) + "\n" for e in fresh))
+            if signed:
+                with hd.open("a", encoding="utf-8") as f:
+                    f.write(_jsonl(signed) + "\n")
+        return {"written": len(fresh), "skipped": part["skipped"], "conflicts": part["conflicts"]}
+
+    def head(self, run: dict):
+        """The highest contiguous event this sink holds for a run, or None."""
+        return _contiguous_head(self._seen(run))
+
+    def read(self, run: dict):
+        _, ev, hd = self.paths(run)
+        return sorted((e for e in self._read_jsonl(ev) if e.get("run") == run), key=lambda e: e["seq"]), self._read_jsonl(hd)
+
+
+class MemorySink:
+    def __init__(self):
+        self.runs: dict = {}
+
+    def write(self, events, signed) -> dict:
+        if not events:
+            return _no_write()
+        r = self.runs.setdefault((events[0]["run"]["ns"], events[0]["run"]["wf"], events[0]["run"]["run"]), {"events": {}, "heads": []})
+        part = partition_delta(events, r["events"].get)
+        for e in part["fresh"]:
+            r["events"][e["seq"]] = e
+        if signed and part["fresh"]:
+            r["heads"].append(signed)
+        return {"written": len(part["fresh"]), "skipped": part["skipped"], "conflicts": part["conflicts"]}
+
+    def head(self, run: dict):
+        r = self.runs.get((run["ns"], run["wf"], run["run"]))
+        return _contiguous_head(r["events"]) if r else None
+
+    def read(self, wf):
+        for (ns, w, run), r in self.runs.items():
+            if w == wf:
+                return [r["events"][k] for k in sorted(r["events"])], r["heads"]
+        return [], []
+
+
+async def _settle(value):
+    return await value if inspect.isawaitable(value) else value
+
+
+class _Exporter(ActivityInboundInterceptor):
+    """Reads the ledger delta a workflow attached to an activity's headers, checks
+    it chains internally AND onto what the sink holds, signs the verified head,
+    and hands both to the sink. Never fails the activity: the history holds the
+    delta. A gap or a fork is written unsigned and reported; a conflict at a
+    held seq is the tamper signal (review PY4, P0/P1 E3).
+
+    With header keys configured, a delta must arrive SEALED, for this activity's
+    own execution, as a ledger header (P9 SEC-EX2/SH2): a plaintext header came
+    from something that does not hold the key."""
+
+    def __init__(self, next, sink, key, on_conflict=None, on_error=None, header_keys=None):
+        super().__init__(next)
+        self._sink = sink
+        self._key = key
+        self._on_conflict = on_conflict
+        self._on_error = on_error
+        self._header_keys = header_keys or {}
+
+    def _fail(self, err: BaseException):
+        if self._on_error:
+            try:
+                self._on_error(err)
+                return
+            except Exception:  # noqa: BLE001 — a reporter never fails the activity
+                pass
+        temporalio.activity.logger.error("polyflow ledger export failed: %s", err)
+
+    def _conflict(self, run: dict, seqs: list):
+        if self._on_conflict:
+            try:
+                self._on_conflict(run, seqs)
+                return
+            except Exception:  # noqa: BLE001
+                pass
+        temporalio.activity.logger.error("polyflow ledger conflict for %s/%s at seq %s", run["wf"], run["run"], ",".join(map(str, seqs)))
+
+    async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+        p = input.headers.get(LEDGER_HEADER)
+        if p is not None and self._sink is not None:
+            try:
+                info = temporalio.activity.info()
+                data = temporalio.activity.payload_converter().from_payload(p, dict)
+                data = open_header(data, self._header_keys, required=bool(self._header_keys),
+                                   expect={"runId": info.workflow_run_id, "purpose": "ledger"})
+                events = data.get("events") if isinstance(data, dict) else None
+                if not isinstance(events, list) or not events:
+                    raise ValueError("ledger header carries no events")
+                run = events[0]["run"]
+                # The deployment key vouches only for the activity's OWN workflow.
+                if run["wf"] != info.workflow_id or run["ns"] != info.workflow_namespace:
+                    raise ValueError(f"ledger delta names run {run['ns']}/{run['wf']}, but the activity belongs to "
+                                     f"{info.workflow_namespace}/{info.workflow_id}: refused, not signed")
+                # A chain STARTS in the execution that admits it: a delta from seq 0
+                # must name this activity's own run, or workflow code could write a
+                # signed record for a run that never happened (P9 SEC-EX1). Later
+                # deltas keep the chain's first run id across Continue-as-New.
+                if events[0]["seq"] == 0 and run["run"] != info.workflow_run_id:
+                    raise ValueError(f"ledger delta starts a chain for run {run['run']}, but the activity belongs to run "
+                                     f"{info.workflow_run_id}: refused, not signed")
+                chk = verify_chain(events, {"seq": events[0]["seq"] - 1, "hash": events[0]["prev"]})
+                if not chk["ok"]:
+                    raise ValueError(f"ledger delta does not chain at seq {chk['seq']}: {chk['reason']}")
+                # Continuity with what the sink already holds: a delta that skips
+                # ahead is written (so the gap shows) but not signed, and reported.
+                head_fn = getattr(self._sink, "head", None)
+                checks = callable(head_fn)
+                held = await _settle(head_fn(run)) if checks else None
+                gap = checks and (events[0]["seq"] > held["seq"] + 1 if held else events[0]["seq"] > 0)
+                # The first event past what the sink holds must point at the sink's head.
+                nxt = next((e for e in events if e["seq"] == held["seq"] + 1), None) if held and not gap else None
+                continues = nxt is None or nxt["prev"] == held["hash"]
+                if gap:
+                    self._fail(ValueError(f"ledger gap for {run['wf']}/{run['run']}: the sink holds through seq "
+                                          f"{held['seq'] if held else -1}, this delta starts at {events[0]['seq']}"))
+                elif not continues:
+                    self._fail(ValueError(f"ledger fork for {run['wf']}/{run['run']} at seq {held['seq'] + 1}"))
+                # Sign the head of the events verified here, never a head the payload claims.
+                signed = _sign(run, chk["head"], self._key) if self._key and not gap and continues else None
+                r = await _settle(self._sink.write(events, signed))
+                if isinstance(r, dict) and r.get("conflicts"):
+                    self._conflict(run, r["conflicts"])
+            except Exception as err:  # noqa: BLE001 — export never fails the activity
+                self._fail(err)
+        return await super().execute_activity(input)
+
+
+class _Interceptor(Interceptor):
+    def __init__(self, config, sink, key, on_conflict=None, on_error=None, header_keys=None):
+        self._config = config
+        self._sink = sink
+        self._key = key
+        self._on_conflict = on_conflict
+        self._on_error = on_error
+        self._header_keys = header_keys or {}
+
+    def intercept_activity(self, next):
+        return _Exporter(next, self._sink, self._key, self._on_conflict, self._on_error, self._header_keys)
+
+    def workflow_interceptor_class(self, input: WorkflowInterceptorClassInput):
+        return _make_inbound(self._config)
+
+
+@temporalio.activity.defn(name=FLUSH_ACTIVITY)
+async def _flush_activity(_head: dict) -> dict:
+    return {"flushed": True}
+
+
+def PolyflowPlugin(*, level: str = "observe", policy: dict | None = None, sink=None, signing_key: dict | None = None,
+                   on_conflict=None, on_error=None, header_key: dict | None = None, header_keys: dict | None = None) -> SimplePlugin:
+    """The one line a Temporal Python customer adds: ``Worker(..., plugins=[PolyflowPlugin(...)])``.
+
+    ``policy`` is an ADMITTED policy (the JSON `polyflow policy` prints), with its digest.
+    ``on_conflict(run, seqs)`` hears the tamper signal (a different event at a seq
+    the sink holds); ``on_error(err)`` hears export failures, gaps and forks.
+    Both default to the activity logger.
+    ``header_key`` ({keyId, key: base64 of 32 bytes}) seals the ledger and
+    Continue-as-New headers (plan P2.6; NFR-7), exactly as the TypeScript plugin
+    does; ``header_keys`` ({keyId: key}) are older keys still accepted (rotation).
+    With any key configured, the exporter refuses a plaintext ledger header.
+    """
+    if level not in ("observe", "guard"):
+        raise ValueError(f"unknown level '{level}' (observe | guard)")
+    if level == "guard":
+        if not policy or "digest" not in policy or "kinds" not in policy:
+            raise ValueError("level 'guard' needs an ADMITTED policy (run `polyflow policy <file>`; it carries kinds and a digest)")
+        check_admitted(policy)  # edited after admission, or a route TS would refuse: not loaded
+    if signing_key is not None:
+        _load_signer(signing_key)  # fail at construction, not with an unsigned ledger later
+    if header_key is not None:
+        check_header_key(header_key)
+    for kid, k in (header_keys or {}).items():
+        check_header_key({"keyId": kid, "key": k})
+    all_keys = {**(header_keys or {}), **({header_key["keyId"]: header_key["key"]} if header_key else {})}
+    config = {"level": level, "policy": policy if level == "guard" else None,
+              **({"header_key": dict(header_key)} if header_key else {}), "header_keys": all_keys}
+
+    def runner(existing):
+        from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
+        if isinstance(existing, SandboxedWorkflowRunner):
+            return SandboxedWorkflowRunner(restrictions=existing.restrictions.with_passthrough_modules("polyflow_temporal"))
+        return existing
+
+    return SimplePlugin(
+        "polyflow",
+        interceptors=[_Interceptor(config, sink, signing_key, on_conflict, on_error, all_keys)],
+        activities=lambda acts: [*(acts or []), _flush_activity],
+        workflow_runner=runner,
+    )
