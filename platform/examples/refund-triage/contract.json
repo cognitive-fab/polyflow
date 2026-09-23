@@ -1,0 +1,33 @@
+{
+  "lang": "javascript",
+  "stateKeys": [
+    { "name": "phase", "type": "enum: 'idle' | 'assessing' | 'reviewing' | 'refunding' | 'refunded' | 'declined' | 'failed' | 'cancelled'" },
+    { "name": "message", "type": "string, the customer's request" },
+    { "name": "route", "type": "enum: '' | 'judge' | 'person', who cleared the refund" },
+    { "name": "reason", "type": "string, why the run ended without a refund ('' otherwise)" }
+  ],
+  "initState": { "phase": "idle", "message": "", "route": "", "reason": "" },
+  "actions": {
+    "START": { "dataFields": { "message": "string" } },
+    "ASSESSED": { "dataFields": { "reasonStated": "true | false | absent (the judge abstained)", "fraud": "true | false | absent" } },
+    "ASSESS_FAILED": { "dataFields": { "reason": "string" } },
+    "APPROVED": { "dataFields": {} },
+    "DECLINED": { "dataFields": { "reason": "string" } },
+    "REFUNDED": { "dataFields": {} },
+    "REFUND_FAILED": { "dataFields": { "reason": "string" } },
+    "CANCEL": { "dataFields": {} }
+  },
+  "dataDomain": {
+    "START": { "message": ["my order arrived broken, please refund"] },
+    "ASSESSED": { "reasonStated": [true, false, null], "fraud": [true, false, null] },
+    "ASSESS_FAILED": { "reason": ["judge-unavailable"] },
+    "APPROVED": {},
+    "DECLINED": { "reason": ["not-eligible"] },
+    "REFUNDED": {},
+    "REFUND_FAILED": { "reason": ["card-declined"] },
+    "CANCEL": {}
+  },
+  "terminalKey": "phase",
+  "terminalStates": ["refunded", "declined", "failed", "cancelled"],
+  "noOpRule": "An action that does not apply in the current state is reject(reason) - an observable no-op with post == pre."
+}

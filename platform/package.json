@@ -1,0 +1,17 @@
+{
+  "name": "@cognitive-fab/polyflow-platform",
+  "private": true,
+  "description": "Polyflow for Temporal: the governance layer for agents that run on Temporal.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    ".."
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "Apache-2.0"
+}

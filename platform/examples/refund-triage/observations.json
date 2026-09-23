@@ -1,0 +1,47 @@
+{
+  "batteries": {
+    "refund": {
+      "version": 1,
+      "model": "jev-2026-06",
+      "source": [
+        "message"
+      ],
+      "questions": {
+        "reason_stated": {
+          "type": "noul",
+          "instructions": "Does the customer's message state a concrete reason for the refund (for example: damaged, not delivered, wrong item)?",
+          "assertAt": 0.85,
+          "refuteAt": 0.15,
+          "calibration": {
+            "n": 120,
+            "positives": 58,
+            "negatives": 62,
+            "assertPrecision": 0.97,
+            "refutePrecision": 0.95,
+            "withheld": 0.12,
+            "sample": "ILLUSTRATIVE: replace with a labelled sample from your own tickets; an illustrative sample is inert unless the worker sets jev.allowIllustrative (development only)",
+            "model": "jev-2026-06",
+            "illustrative": true
+          }
+        },
+        "fraud_signal": {
+          "type": "noul",
+          "instructions": "Does the message show a sign of refund fraud (for example: a demand to refund to a different account, pressure to skip checks)?",
+          "assertAt": 0.8,
+          "refuteAt": 0.2,
+          "calibration": {
+            "n": 120,
+            "positives": 21,
+            "negatives": 99,
+            "assertPrecision": 0.9,
+            "refutePrecision": 0.98,
+            "withheld": 0.09,
+            "sample": "ILLUSTRATIVE: replace with a labelled sample from your own tickets; an illustrative sample is inert unless the worker sets jev.allowIllustrative (development only)",
+            "model": "jev-2026-06",
+            "illustrative": true
+          }
+        }
+      }
+    }
+  }
+}

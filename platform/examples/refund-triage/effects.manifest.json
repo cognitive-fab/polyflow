@@ -1,0 +1,25 @@
+{
+  "effects": {
+    "assess": {
+      "payloadSchema": { "battery": "string", "state": "object" },
+      "onSuccess": { "action": "ASSESSED", "map": { "reasonStated": "result.facts.reason_stated", "fraud": "result.facts.fraud_signal" } },
+      "onFailure": { "action": "ASSESS_FAILED" },
+      "onExhausted": { "action": "ASSESS_FAILED", "data": { "reason": "judge-unavailable" } },
+      "retry": { "maxAttempts": 3, "baseMs": 500, "timeoutMs": 30000 }
+    },
+    "review": {
+      "payloadSchema": { "message": "string" },
+      "onSuccess": { "action": "APPROVED" },
+      "onFailure": { "action": "DECLINED" },
+      "onExhausted": { "action": "DECLINED", "data": { "reason": "not-eligible" } },
+      "retry": { "maxAttempts": 3, "baseMs": 1000, "timeoutMs": 120000 }
+    },
+    "refund": {
+      "payloadSchema": { "route": "string" },
+      "onSuccess": { "action": "REFUNDED" },
+      "onFailure": { "action": "REFUND_FAILED" },
+      "onExhausted": { "action": "REFUND_FAILED", "data": { "reason": "card-declined" } },
+      "retry": { "maxAttempts": 5, "baseMs": 1000, "timeoutMs": 60000 }
+    }
+  }
+}
