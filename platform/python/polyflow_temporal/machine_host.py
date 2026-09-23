@@ -299,7 +299,9 @@ def _default_engine() -> str:
         import wasmtime  # noqa: F401
     except ImportError:
         return "native"
-    return "wasm" if VENDORED_WASM.exists() else "native"
+    # The sandboxed engine whenever wasmtime is installed: its first
+    # construction resolves the pinned wasm (cache, or a verified fetch).
+    return "wasm"
 
 
 class QuickJSMachineHost:

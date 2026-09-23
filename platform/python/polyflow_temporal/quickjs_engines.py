@@ -1,8 +1,11 @@
 """Two QuickJS engines behind one interface, for the G2 machine host.
 
 ``WasmQuickJS`` (preferred): QuickJS-NG compiled to WebAssembly (the
-``quickjs-wasi`` build, vendored with its licence under ``vendor/quickjs-wasi``,
-see PROVENANCE there), run under wasmtime. The guest gets NO real host
+``quickjs-wasi`` build; its licence and provenance live under
+``vendor/quickjs-wasi``), run under wasmtime. The .wasm itself is not shipped:
+it is fetched from the npm registry on first use (or ahead of time with
+``python -m polyflow_temporal.quickjs_engines fetch``) and pinned by sha256,
+see :func:`resolve_quickjs_wasm`. The guest gets NO real host
 imports: every WASI and ``env`` function it declares is a stub defined here
 (no clock: time is 0; no entropy: random bytes are 0; no files, no sockets; no
 module loader; no host functions). Its budget is wasmtime FUEL, so a runaway
@@ -20,10 +23,30 @@ engine must be rebuilt: neither is trusted again).
 
 from __future__ import annotations
 
-import functools
+import hashlib
+import io
+import os
+import sys
+import tarfile
+import tempfile
+import threading
 from pathlib import Path
 
+# Where a dev tree may still hold the wasm (git-ignored). Kept as the default
+# ``wasm_path`` sentinel: passing it means "resolve the pinned build".
 VENDORED_WASM = Path(__file__).resolve().parent / "vendor" / "quickjs-wasi" / "quickjs.wasm"
+
+# The pinned build (see vendor/quickjs-wasi/PROVENANCE.txt).
+QUICKJS_WASI_VERSION = "3.6.2"
+QUICKJS_WASI_TARBALL_URL = f"https://registry.npmjs.org/quickjs-wasi/-/quickjs-wasi-{QUICKJS_WASI_VERSION}.tgz"
+QUICKJS_WASI_TARBALL_SHA256 = "f1f4349f19a2d849e33ea0ae9bec2e7062b8839f4eceb17c9051ddbaa2720982"
+QUICKJS_WASM_SHA256 = "d4c9375f2b1ca4dc95f72c8aa2982a7a9951ac8011490d79c6582df732b4bbd9"
+_TARBALL_MEMBER = "package/quickjs.wasm"
+_MAX_DOWNLOAD = 64 * 1024 * 1024
+
+ENV_WASM_PATH = "POLYFLOW_QUICKJS_WASM"
+ENV_NO_FETCH = "POLYFLOW_QUICKJS_NO_FETCH"
+FETCH_COMMAND = "python -m polyflow_temporal.quickjs_engines fetch"
 
 
 class EngineBudget(Exception):
@@ -32,6 +55,165 @@ class EngineBudget(Exception):
 
 class EngineError(Exception):
     pass
+
+
+class QuickJSWasmUnavailable(EngineError):
+    """The pinned QuickJS wasm is not on disk and may not (or could not) be fetched."""
+
+
+class QuickJSWasmMismatch(EngineError):
+    """A QuickJS wasm (or its tarball) does not hash to the pinned sha256: refused."""
+
+
+# ---- the pinned wasm: resolve, verify, fetch --------------------------------------
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def cache_dir() -> Path:
+    """The user cache directory for the fetched wasm (no platformdirs):
+    ``%LOCALAPPDATA%/polyflow`` on Windows, else ``$XDG_CACHE_HOME/polyflow``
+    or ``~/.cache/polyflow``."""
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "polyflow"
+
+
+def cached_wasm_path(root: str | Path | None = None) -> Path:
+    return Path(root if root is not None else cache_dir()) / f"quickjs-wasi-{QUICKJS_WASI_VERSION}" / "quickjs.wasm"
+
+
+def read_verified_wasm(path: str | Path) -> bytes:
+    """The bytes of ``path``, only if they hash to the pinned sha256. The caller
+    uses these bytes (not the file again), so what is checked is what is run."""
+    p = Path(path)
+    try:
+        data = p.read_bytes()
+    except FileNotFoundError:
+        raise QuickJSWasmUnavailable(f"no QuickJS wasm at {p}") from None
+    digest = _sha256(data)
+    if digest != QUICKJS_WASM_SHA256:
+        raise QuickJSWasmMismatch(
+            f"refusing {p}: sha256 {digest} is not the pinned quickjs-wasi@{QUICKJS_WASI_VERSION} "
+            f"build ({QUICKJS_WASM_SHA256}). Delete it and run `{FETCH_COMMAND}`.")
+    return data
+
+
+def _candidates() -> list[tuple[str, Path]]:
+    out = []
+    env = os.environ.get(ENV_WASM_PATH)
+    if env:
+        out.append((ENV_WASM_PATH, Path(env)))
+    out.append(("cache", cached_wasm_path()))
+    out.append(("vendor", VENDORED_WASM))
+    return out
+
+
+def resolve_quickjs_wasm(*, fetch: bool | None = None) -> Path:
+    """The path of a verified copy of the pinned wasm, from (1) ``$POLYFLOW_QUICKJS_WASM``,
+    (2) the user cache, (3) the dev-tree vendor path. If none exists, fetch it into the
+    cache, unless ``fetch`` is False or ``$POLYFLOW_QUICKJS_NO_FETCH=1``. An explicit
+    ``$POLYFLOW_QUICKJS_WASM`` must exist; any file found that does not hash to the pin
+    is refused (never skipped over)."""
+    for source, path in _candidates():
+        if source == ENV_WASM_PATH and not path.is_file():
+            raise QuickJSWasmUnavailable(f"${ENV_WASM_PATH} names {path}, which does not exist")
+        if path.is_file():
+            read_verified_wasm(path)
+            return path
+    if fetch is None:
+        fetch = os.environ.get(ENV_NO_FETCH, "").strip().lower() not in ("1", "true", "yes", "on")
+    if not fetch:
+        raise QuickJSWasmUnavailable(
+            f"the QuickJS wasm (quickjs-wasi@{QUICKJS_WASI_VERSION}) is not installed and network fetch "
+            f"is disabled (${ENV_NO_FETCH}=1). Pre-populate the cache with `{FETCH_COMMAND}` "
+            f"(it writes {cached_wasm_path()}), or point ${ENV_WASM_PATH} at a copy.")
+    return fetch_quickjs_wasm()
+
+
+def _download(url: str) -> bytes:
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "polyflow-temporal"})
+    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 (fixed https URL)
+        data = resp.read(_MAX_DOWNLOAD + 1)
+    if len(data) > _MAX_DOWNLOAD:
+        raise QuickJSWasmUnavailable(f"{url} is larger than {_MAX_DOWNLOAD} bytes")
+    return data
+
+
+_fetch_lock = threading.Lock()
+
+
+def fetch_quickjs_wasm(*, root: str | Path | None = None, force: bool = False) -> Path:
+    """Download the pinned quickjs-wasi tarball, check its sha256, take
+    ``package/quickjs.wasm`` out of it (in memory, nothing else is extracted), check
+    that sha256 too, and write it atomically into the cache. Returns the path."""
+    dest = cached_wasm_path(root)
+    with _fetch_lock:
+        if dest.is_file() and not force:
+            read_verified_wasm(dest)
+            return dest
+        try:
+            tgz = _download(QUICKJS_WASI_TARBALL_URL)
+        except OSError as err:
+            raise QuickJSWasmUnavailable(
+                f"could not download {QUICKJS_WASI_TARBALL_URL}: {err}. Set ${ENV_WASM_PATH} to a "
+                f"verified copy, or run `{FETCH_COMMAND}` where the registry is reachable.") from None
+        digest = _sha256(tgz)
+        if digest != QUICKJS_WASI_TARBALL_SHA256:
+            raise QuickJSWasmMismatch(
+                f"refusing {QUICKJS_WASI_TARBALL_URL}: sha256 {digest}, pinned {QUICKJS_WASI_TARBALL_SHA256}")
+        try:
+            with tarfile.open(fileobj=io.BytesIO(tgz), mode="r:gz") as tar:
+                member = tar.getmember(_TARBALL_MEMBER)
+                f = tar.extractfile(member) if member.isfile() else None
+                if f is None:
+                    raise KeyError(_TARBALL_MEMBER)
+                wasm = f.read()
+        except (KeyError, tarfile.TarError) as err:
+            raise QuickJSWasmMismatch(f"the pinned tarball has no usable {_TARBALL_MEMBER}: {err}") from None
+        digest = _sha256(wasm)
+        if digest != QUICKJS_WASM_SHA256:
+            raise QuickJSWasmMismatch(f"refusing {_TARBALL_MEMBER}: sha256 {digest}, pinned {QUICKJS_WASM_SHA256}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".quickjs-", suffix=".tmp", dir=dest.parent)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(wasm)
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(tmp, dest)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return dest
+
+
+def _main(argv: list[str]) -> int:
+    usage = f"usage: {FETCH_COMMAND} [--force] | python -m polyflow_temporal.quickjs_engines path"
+    if not argv or argv[0] in ("-h", "--help"):
+        print(usage)
+        return 0 if argv else 2
+    cmd, rest = argv[0], argv[1:]
+    try:
+        if cmd == "fetch" and set(rest) <= {"--force"}:
+            # The explicit, operator-run fetch: $POLYFLOW_QUICKJS_NO_FETCH does not apply.
+            print(fetch_quickjs_wasm(force="--force" in rest))
+            return 0
+        if cmd == "path" and not rest:
+            print(resolve_quickjs_wasm(fetch=False))
+            return 0
+    except EngineError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+    print(usage, file=sys.stderr)
+    return 2
 
 
 # ---- native -------------------------------------------------------------------------
@@ -89,13 +271,31 @@ def _js_string(s: str) -> str:
 
 # ---- wasm ---------------------------------------------------------------------------
 
-@functools.lru_cache(maxsize=4)
-def _compiled(path: str):
+_compiled_cache: dict = {}
+_compiled_lock = threading.Lock()
+
+
+def _compiled(wasm: bytes):
+    """Compile verified bytes (not a path: the file is not re-read after its hash
+    was checked). Cached by content hash."""
     import wasmtime
-    cfg = wasmtime.Config()
-    cfg.consume_fuel = True
-    engine = wasmtime.Engine(cfg)
-    return engine, wasmtime.Module.from_file(engine, path)
+    key = _sha256(wasm)
+    with _compiled_lock:
+        hit = _compiled_cache.get(key)
+        if hit is None:
+            cfg = wasmtime.Config()
+            cfg.consume_fuel = True
+            engine = wasmtime.Engine(cfg)
+            hit = _compiled_cache[key] = (engine, wasmtime.Module(engine, wasm))
+        return hit
+
+
+def _load_wasm(wasm_path: str | Path | None) -> bytes:
+    """``None`` or the ``VENDORED_WASM`` sentinel: resolve (and fetch if allowed).
+    Any other path: that file. Either way the bytes are verified on every load."""
+    if wasm_path is None or Path(wasm_path) == VENDORED_WASM:
+        wasm_path = resolve_quickjs_wasm()
+    return read_verified_wasm(wasm_path)
 
 
 class WasmQuickJS:
@@ -105,13 +305,13 @@ class WasmQuickJS:
     ERRNO_NOSYS = 52
 
     def __init__(self, *, fuel: int, memory_limit: int, stack_bytes: int, load_fuel: int = 2_000_000_000,
-                 wasm_path: str | Path = VENDORED_WASM):
+                 wasm_path: str | Path | None = VENDORED_WASM):
         import wasmtime
         self._w = wasmtime
         self._fuel, self._load_fuel = fuel, load_fuel
         self._memory_limit = memory_limit
         self._heap_before = self._heap_after = 0
-        engine, module = _compiled(str(wasm_path))
+        engine, module = _compiled(_load_wasm(wasm_path))
         store = wasmtime.Store(engine)
         # Linear memory is capped by the store, whatever the guest asks for.
         store.set_limits(memory_size=memory_limit + 16 * 1024 * 1024)
@@ -318,3 +518,7 @@ class WasmQuickJS:
 
     def fuel_used(self) -> int:
         return self._fuel - self._store.get_fuel()
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))
