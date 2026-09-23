@@ -1,0 +1,19 @@
+{
+  "name": "@cognitive-fab/polyflow-kernel",
+  "version": "0.1.0",
+  "description": "The pure kernel of Polyflow for Temporal: canonical digests, the decision ledger, the rule kernel, the machine host. No dependencies, no I/O, no clock.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/*.test.mjs\""
+  },
+  "license": "Apache-2.0",
+  "files": [
+    "src",
+    "LICENSE"
+  ]
+}
