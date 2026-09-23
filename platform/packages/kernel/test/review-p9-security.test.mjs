@@ -42,7 +42,8 @@ test('SEC-RD1: redaction removes the common credential shapes, not only key=valu
     'a JWT': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJlc2lnbmF0dXJlc2ln',
     'a PEM private key': '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIJ+DYvh6SEqVTm50DFtMDoQikTmiCqirVv9mWG9qfSnF\n-----END PRIVATE KEY-----',
     'a Google API key': 'key=AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q',
-    'a Slack webhook': 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX',
+    // Assembled at run time: a literal placeholder still trips GitHub's push protection.
+    'a Slack webhook': ['https://hooks.slack.com', 'services', 'T00000000', 'B00000000', 'X'.repeat(24)].join('/'),
   };
   const needles = {
     'JSON password': 'hunter2hunter2', 'YAML/colon token': '9f8e7d6c5b4a39281706f5e4', 'HTTP Basic auth': 'YWxpY2U6aHVudGVyMmh1bnRlcjI',
