@@ -1,0 +1,1 @@
+{ "name": "review-probe", "inputAction": "START", "key": { "template": "{id}", "fields": { "id": { "pattern": "^[a-z0-9-]+$" } } } }
