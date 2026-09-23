@@ -1,0 +1,45 @@
+{
+  "lang": "javascript",
+  "stateKeys": [
+    {
+      "name": "expenseState",
+      "type": "enum: 'idle' | 'creating' | 'pending_approval' | 'paying' | 'completed' | 'rejected' | 'timed_out' | 'failed' | 'stopped'"
+    },
+    { "name": "expenseId", "type": "string, the expense's business id ('' before START)" },
+    { "name": "reason", "type": "string, why the run ended without paying ('' otherwise)" }
+  ],
+  "initState": { "expenseState": "idle", "expenseId": "", "reason": "" },
+  "actions": {
+    "START": { "dataFields": { "expenseId": "string" } },
+    "CREATED": { "dataFields": {} },
+    "CREATE_FAILED": { "dataFields": { "reason": "string" } },
+    "APPROVE": { "dataFields": {} },
+    "REJECT": { "dataFields": { "reason": "string" } },
+    "APPROVAL_TIMEOUT": { "dataFields": {} },
+    "PAID": { "dataFields": {} },
+    "PAY_FAILED": { "dataFields": { "reason": "string" } },
+    "STOP": { "dataFields": {} }
+  },
+  "dataDomain": {
+    "START": { "expenseId": ["my-business-id"] },
+    "CREATED": {},
+    "CREATE_FAILED": { "reason": ["server-unavailable"] },
+    "APPROVE": {},
+    "REJECT": { "reason": ["rejected", "approver-unreachable"] },
+    "APPROVAL_TIMEOUT": {},
+    "PAID": {},
+    "PAY_FAILED": { "reason": ["payment-declined"] },
+    "STOP": {}
+  },
+  "terminalKey": "expenseState",
+  "terminalStates": ["completed", "rejected", "timed_out", "failed", "stopped"],
+  "specialRules": [
+    {
+      "name": "stale-completions-reject",
+      "note": "A completion arriving in any state other than the one that awaits it is an observable rejection (post == pre), never a fault: a late approval after the window closed, a duplicate payment result.",
+      "whenState": "any non-awaiting state",
+      "whenAction": "CREATED | CREATE_FAILED | APPROVE | REJECT | APPROVAL_TIMEOUT | PAID | PAY_FAILED"
+    }
+  ],
+  "noOpRule": "An action that does not apply in the current state is reject(reason) - an observable no-op with post == pre."
+}

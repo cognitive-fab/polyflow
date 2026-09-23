@@ -2,10 +2,10 @@
 // Checks every port of an official Temporal sample against the pinned upstream
 // copy beside it. A port declares, in its `upstream.json`:
 //
-//   { "source": "samples-python@4e2f01e",           // a directory here
-//     "root": "openai_agents/customer_service",     // the sample's path upstream (documentation)
-//     "files": { "<path, the same under the port and under source>": { "identical": true }
-//              | { "identical": false, "why": "..." } } }
+//   { "source": "samples-typescript@8907f29",       // a directory here
+//     "root": "expense",                            // the sample's directory under it
+//     "files": { "<path under the port>": { "identical": true }
+//              | { "identical": false, "why": "...", "upstream": "<path under root, when it differs>" } } }
 //
 // The headline claim of a port is which files did NOT change, so it is made
 // mechanical: an `identical: true` file must match upstream byte for byte
@@ -38,7 +38,7 @@ const ports = process.argv.length > 2 ? process.argv.slice(2).map((d) => join(re
 for (const manifest of ports) {
   const port = dirname(manifest);
   const m = JSON.parse(readFileSync(manifest, 'utf8'));
-  const upstream = join(here, m.source);
+  const upstream = join(here, m.source, m.root);
   console.log(`${m.source}/${m.root} -> ${port.slice(platform.length + 1).replace(/\\/g, '/')}`);
   for (const [file, spec] of Object.entries(m.files)) {
     let ours, theirs;

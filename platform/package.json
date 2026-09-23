@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "examples/temporal_samples/*",
     ".."
   ],
   "scripts": {

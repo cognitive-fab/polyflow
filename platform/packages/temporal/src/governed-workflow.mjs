@@ -344,6 +344,12 @@ export async function GovernedWorkflow(args = {}) {
     const o = orders.get(orderId);
     if (!o || o.status !== 'open') return `order '${orderId}' is not open`;
     if (!kinds.includes(o.kind)) return `'${action}' does not complete a '${o.kind}' order`;
+    // An order this worker's activity performs, addressed to nobody, completes
+    // when the activity does: a proposal naming it would step the completion
+    // while the work is in flight (paid, on the record, before the payment).
+    // A person's order (a role) is answered by a proposal, as the parked
+    // activity is only the request's presence on the worker (P11 sample 2).
+    if (!o.external && !o.role) return `order '${orderId}' is performed by this worker; it is not completed by hand`;
     // The same rules as polyflow.report: a claim, a role (P4/P5 review PC).
     const holder = holderOf(o);
     if (holder && holder !== actorId(actor)) return `order '${orderId}' is claimed by ${holder}`;

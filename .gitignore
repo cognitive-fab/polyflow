@@ -19,3 +19,6 @@ platform/python/.venv/
 
 # fetched at install time (pinned, sha256-checked), not committed
 platform/python/polyflow_temporal/vendor/quickjs-wasi/quickjs.wasm
+
+# certificates are produced by `polyflow admit --key` in CI, never committed
+platform/examples/temporal_samples/**/polyflow.certificate.json
