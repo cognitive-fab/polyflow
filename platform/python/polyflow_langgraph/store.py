@@ -8,12 +8,17 @@ one). Every decision is a read-modify-write of this record inside
 ``transaction``, which serialises every worker on the thread, in this process
 and across processes over the same directory (LG5, LG7).
 
+Tool results are NOT in the record. They are blobs beside it (``put_blob`` /
+``get_blob``), one per effect, so a transaction's cost does not grow with the
+output a thread retains for replays.
+
 Two stores, placed with the sink by default so the record is as durable as the
 ledger it continues:
 
 - ``MemoryThreadStore``: in process (tests, a ``MemorySink``);
 - ``FileThreadStore(root)``: ``<root>/<ns>/<thread>/thread.state.json`` beside the
-  ``FileSink``'s run files, written atomically under an OS file lock.
+  ``FileSink``'s run files, written atomically under an OS file lock, with
+  ``<root>/<ns>/<thread>/results/<effect>.json`` for retained results.
 """
 
 from __future__ import annotations
@@ -23,17 +28,26 @@ import json
 import os
 import threading
 import time
+import zlib
 from pathlib import Path
 
 from polyflow_temporal.sinks import FileSink, MemorySink, safe_component
 
-_PROCESS_LOCKS: dict = {}
-_PROCESS_LOCKS_GUARD = threading.Lock()
+STRIPES = 64
 
 
-def _process_lock(key) -> threading.Lock:
-    with _PROCESS_LOCKS_GUARD:
-        return _PROCESS_LOCKS.setdefault(key, threading.Lock())
+def _stripe(key) -> int:
+    return zlib.crc32(repr(key).encode("utf-8")) % STRIPES
+
+
+# Striped, so the lock table never grows with the number of threads seen (review 8).
+_PROCESS_LOCKS = [threading.Lock() for _ in range(STRIPES)]
+
+
+def dumps(value) -> str:
+    """JSON that never fails after a side effect: anything JSON cannot carry is
+    written as its ``str`` (review 5)."""
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 class _Txn:
@@ -42,32 +56,38 @@ class _Txn:
         self.committed = None
 
     def commit(self, record: dict):
-        self.committed = json.loads(json.dumps(record))  # JSON-shaped, and detached from the caller
+        self.committed = json.loads(dumps(record))  # JSON-shaped, and detached from the caller
 
 
 class MemoryThreadStore:
     def __init__(self):
         self._records: dict = {}
-        self._locks: dict = {}
-        self._guard = threading.Lock()
-
-    def _lock(self, key):
-        with self._guard:
-            return self._locks.setdefault(key, threading.Lock())
+        self._blobs: dict = {}
+        self._locks = [threading.Lock() for _ in range(STRIPES)]
 
     @contextlib.contextmanager
     def transaction(self, ns: str, thread: str):
         key = (ns, thread)
-        with self._lock(key):
+        with self._locks[_stripe(key)]:
             rec = self._records.get(key)
-            txn = _Txn(json.loads(json.dumps(rec)) if rec is not None else None)
+            txn = _Txn(json.loads(dumps(rec)) if rec is not None else None)
             yield txn
             if txn.committed is not None:
                 self._records[key] = txn.committed
 
     def peek(self, ns: str, thread: str):
         rec = self._records.get((ns, thread))
-        return json.loads(json.dumps(rec)) if rec is not None else None
+        return json.loads(dumps(rec)) if rec is not None else None
+
+    def put_blob(self, ns: str, thread: str, name: str, value) -> None:
+        self._blobs[(ns, thread, name)] = json.loads(dumps(value))
+
+    def get_blob(self, ns: str, thread: str, name: str):
+        v = self._blobs.get((ns, thread, name))
+        return json.loads(dumps(v)) if v is not None else None
+
+    def delete_blob(self, ns: str, thread: str, name: str) -> None:
+        self._blobs.pop((ns, thread, name), None)
 
 
 @contextlib.contextmanager
@@ -108,6 +128,13 @@ def _file_lock(path: Path, timeout: float = 60.0):
         os.close(fd)
 
 
+def _write_atomically(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 class FileThreadStore:
     """One JSON record per thread, beside the FileSink's run files. Several
     processes may share the directory: every transaction holds an OS lock."""
@@ -122,22 +149,40 @@ class FileThreadStore:
             raise ValueError(f"thread record for {thread!r} resolves outside the store root: refused")
         return d
 
+    def _blob(self, ns: str, thread: str, name: str) -> Path:
+        d = self._dir(ns, thread)
+        p = d / "results" / f"{safe_component(name)}.json"
+        if d not in p.resolve().parents:
+            raise ValueError("blob name resolves outside the thread's directory: refused")
+        return p
+
     @contextlib.contextmanager
     def transaction(self, ns: str, thread: str):
         d = self._dir(ns, thread)
         state, lock = d / "thread.state.json", d / "thread.lock"
-        with _process_lock(("file", str(state))), _file_lock(lock):
+        with _PROCESS_LOCKS[_stripe(("file", str(state)))], _file_lock(lock):
             rec = json.loads(state.read_text(encoding="utf-8")) if state.exists() else None
             txn = _Txn(rec)
             yield txn
             if txn.committed is not None:
-                tmp = d / f"thread.state.{os.getpid()}.{threading.get_ident()}.tmp"
-                tmp.write_text(json.dumps(txn.committed, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-                os.replace(tmp, state)
+                _write_atomically(state, dumps(txn.committed))
 
     def peek(self, ns: str, thread: str):
         state = self._dir(ns, thread) / "thread.state.json"
         return json.loads(state.read_text(encoding="utf-8")) if state.exists() else None
+
+    def put_blob(self, ns: str, thread: str, name: str, value) -> None:
+        _write_atomically(self._blob(ns, thread, name), dumps(value))
+
+    def get_blob(self, ns: str, thread: str, name: str):
+        p = self._blob(ns, thread, name)
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+    def delete_blob(self, ns: str, thread: str, name: str) -> None:
+        try:
+            self._blob(ns, thread, name).unlink()
+        except FileNotFoundError:
+            pass
 
 
 def store_for(sink):
@@ -155,10 +200,13 @@ def store_for(sink):
 
 
 def sink_holds_thread(sink, ns: str, thread: str) -> bool:
-    """Does the sink already hold a chain for this thread? (A missing record then fails closed.)"""
-    if isinstance(sink, MemorySink):
-        return any(k[0] == ns and k[1] == thread for k in sink.runs)
-    if isinstance(sink, FileSink):
-        d = sink.root.resolve() / safe_component(ns) / safe_component(thread)
-        return d.is_dir() and any(p.name.endswith(".jsonl") and not p.name.endswith(".heads.jsonl") for p in d.iterdir())
-    return False
+    """Does the sink already hold a chain for this thread? (A missing record then fails
+    closed.) Asks the sink protocol's ``runs_of``; a sink without it is treated as
+    holding the thread, so the answer fails CLOSED (the Governor refuses such a sink
+    at guard level before it gets here)."""
+    runs_of = getattr(sink, "runs_of", None)
+    if sink is None:
+        return False
+    if not callable(runs_of):
+        return True
+    return bool(runs_of(ns, thread))

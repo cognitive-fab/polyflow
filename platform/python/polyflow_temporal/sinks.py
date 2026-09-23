@@ -203,6 +203,22 @@ class FileSink:
         _, ev, hd = self.paths(run)
         return sorted((e for e in self._read_jsonl(ev) if e.get("run") == run), key=lambda e: e["seq"]), self._read_jsonl(hd)
 
+    def runs_of(self, ns: str, wf: str) -> dict:
+        """Every chain this sink holds for a workflow (a LangGraph thread): ``{run_id: events}``.
+        Part of the sink protocol the LangGraph binding needs (verify_thread, fail-closed checks)."""
+        root = self.root.resolve()
+        d = root / safe_component(ns) / safe_component(wf)
+        if root not in d.resolve().parents or not d.is_dir():
+            return {}
+        out = {}
+        for p in sorted(d.iterdir()):
+            if p.name.endswith(".jsonl") and not p.name.endswith(".heads.jsonl"):
+                events = sorted((e for e in self._read_jsonl(p) if isinstance(e, dict) and isinstance(e.get("run"), dict)
+                                 and e["run"].get("ns") == ns and e["run"].get("wf") == wf), key=lambda e: e.get("seq", -1))
+                if events:
+                    out[events[0]["run"]["run"]] = events
+        return out
+
 
 class MemorySink:
     def __init__(self):
@@ -228,3 +244,8 @@ class MemorySink:
             if w == wf:
                 return [r["events"][k] for k in sorted(r["events"])], r["heads"]
         return [], []
+
+    def runs_of(self, ns: str, wf: str) -> dict:
+        """Every chain for a workflow: ``{run_id: events}`` (the sink protocol; see FileSink.runs_of)."""
+        return {run: [r["events"][k] for k in sorted(r["events"])]
+                for (n, w, run), r in self.runs.items() if n == ns and w == wf}

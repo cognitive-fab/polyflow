@@ -150,7 +150,7 @@ def test_every_tool_call_is_recorded_and_the_guard_decides(refunds_policy):
     tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink)
     graph = agent(tools, REFUND_SCRIPT)
     out = graph.invoke({"messages": [("user", "refund T1")]}, cfg("a"))
-    tools.governor.close(graph, cfg("a"))
+    tools.governor.close(cfg("a"))
 
     events, _ = chain(sink, "a")
     assert verify_chain(events)["ok"]
@@ -193,7 +193,7 @@ async def test_the_async_path_records_and_decides_the_same(refunds_policy):
     tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink)
     graph = agent(tools, REFUND_SCRIPT)
     out = await graph.ainvoke({"messages": [("user", "refund T1")]}, cfg("async"))
-    tools.governor.close(graph, cfg("async"))
+    tools.governor.close(cfg("async"))
     events, _ = chain(sink, "async")
     assert verify_chain(events)["ok"] and events[-1]["kind"] == "closure"
     assert [e["body"]["outcome"] for e in events if e["kind"] == "verdict"] == ["denied", "allowed", "allowed", "denied"]
@@ -205,7 +205,7 @@ def test_observe_records_without_a_policy():
     tools = govern([read_ticket, issue_refund], sink=sink)
     graph = agent(tools, REFUND_SCRIPT)
     graph.invoke({"messages": [("user", "refund T1")]}, cfg("g0"))
-    tools.governor.close(graph, cfg("g0"))
+    tools.governor.close(cfg("g0"))
     events, _ = chain(sink, "g0")
     assert verify_chain(events)["ok"]
     assert [e["body"]["activityType"] for e in events if e["kind"] == "effect"] == ["issue_refund", "read_ticket", "issue_refund", "issue_refund"]
@@ -234,7 +234,7 @@ def test_a_routed_generic_tool_is_classified_by_the_tool_it_carries():
                call("call_tool", "r4", tool_name="ISSUE_REFUND", arguments={})]]
     graph = agent(tools, script)
     graph.invoke({"messages": [("user", "go")]}, cfg("routed"))
-    tools.governor.close(graph, cfg("routed"))
+    tools.governor.close(cfg("routed"))
     events, _ = chain(sink, "routed")
     assert [e["body"].get("route") for e in events if e["kind"] == "effect"] == ["call_tool:read_ticket", "call_tool:issue_refund"]
     verdicts = [(e["body"]["outcome"], e["body"]["rules"]) for e in events if e["kind"] == "verdict"]
@@ -255,7 +255,7 @@ def test_a_thread_resumed_in_a_fresh_process_continues_one_chain(refunds_policy)
     second = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink)
     graph = agent(second, REFUND_SCRIPT[1:], saver)
     out = graph.invoke(None, cfg("c"))
-    second.governor.close(graph, cfg("c"))
+    second.governor.close(cfg("c"))
 
     events, _ = chain(sink, "c")
     assert verify_chain(events)["ok"]
@@ -290,7 +290,7 @@ def test_a_step_that_dies_mid_tool_is_re_run_but_recorded_once_and_charged_once(
                     on_conflict=lambda run, seqs: conflicts.append(seqs))
     graph3 = agent(tools3, script, saver)
     out = graph3.invoke(None, cfg("crash"))
-    tools3.governor.close(graph3, cfg("crash"))
+    tools3.governor.close(cfg("crash"))
 
     assert CALLS.count(("read_ticket", "T2")) == 2 and CALLS.count(("issue_refund", "T1")) == 2
     assert conflicts == []  # every re-run derived the events the sink already held
@@ -318,8 +318,8 @@ def test_a_closed_thread_that_goes_on_starts_a_linked_chain(refunds_policy):
                    on_conflict=lambda run, seqs: branches.append((run["run"], seqs)))
     graph = agent(tools, REFUND_SCRIPT[1:3], saver)
     graph.invoke({"messages": [("user", "refund T1")]}, cfg("more"))
-    closed = tools.governor.close(graph, cfg("more"))
-    assert tools.governor.close(graph, cfg("more"))["head"] == closed["head"]  # idempotent
+    closed = tools.governor.close(cfg("more"))
+    assert tools.governor.close(cfg("more"))["head"] == closed["head"]  # idempotent
     # The user comes back to the same thread; the model tries a second refund.
     more = agent(tools, REFUND_SCRIPT[1:3] + [[], [call("issue_refund", "c9", ticket="T1", amount=25)]], saver)
     more.invoke({"messages": [("user", "and again")]}, cfg("more"))
@@ -348,7 +348,7 @@ def test_a_langgraph_ledger_verifies_under_the_typescript_cli(refunds_policy, tm
     second = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=FileSink(tmp_path / "ledger"), signing_key=key)
     graph = agent(second, REFUND_SCRIPT, saver)
     graph.invoke(None, cfg("ts"))
-    second.governor.close(graph, cfg("ts"))
+    second.governor.close(cfg("ts"))
 
     files = [p for p in (tmp_path / "ledger").rglob("*.jsonl") if not p.name.endswith(".heads.jsonl")]
     assert len(files) == 1
@@ -478,11 +478,11 @@ def test_the_typescript_cli_verifies_a_thread_of_linked_chains(refunds_policy, t
     tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=FileSink(root), signing_key=key)
     graph = agent(tools, REFUND_SCRIPT[1:3], saver)
     graph.invoke({"messages": [("user", "refund T1")]}, cfg("linked"))
-    tools.governor.close(graph, cfg("linked"))
+    tools.governor.close(cfg("linked"))
     # The thread continues after close: a second chain, linked to the first closure.
     graph2 = agent(tools, REFUND_SCRIPT[1:3] + [[], [call("issue_refund", "c9", ticket="T1", amount=25)]], saver)
     graph2.invoke({"messages": [("user", "again")]}, cfg("linked"))
-    tools.governor.close(graph2, cfg("linked"))
+    tools.governor.close(cfg("linked"))
     dirs = {p.parent for p in root.rglob("*.jsonl") if not p.name.endswith(".heads.jsonl")}
     assert len(dirs) == 1
     thread_dir = dirs.pop()
@@ -503,3 +503,135 @@ def test_the_typescript_cli_verifies_a_thread_of_linked_chains(refunds_policy, t
     assert out.returncode == 1 and "rogue" in out.stdout, out.stdout   # unsigned: nothing anchors it
     unsigned = subprocess.run(["node", str(CLI), "verify", "--thread", str(thread_dir), "--unsigned"], capture_output=True, text=True)
     assert unsigned.returncode == 1 and "unlinked chains" in unsigned.stdout, unsigned.stdout
+
+
+# ---- after the code review of 1530971 --------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+
+def _request(thread, checkpoint, messages, tc):
+    info = SimpleNamespace(thread_id=thread, checkpoint_id=checkpoint)
+    return SimpleNamespace(runtime=SimpleNamespace(execution_info=info), state={"messages": messages}, tool_call=tc)
+
+
+def _ok(req):
+    return ToolMessage(content="ok", tool_call_id=req.tool_call["id"])
+
+
+def test_close_folds_an_open_effect_into_the_guard_state_like_a_failed_outcome():
+    # An effect left open (the worker died) is observed at close AND folded into the guard:
+    # its taint (reads-untrusted) and its trace entry carry into the next linked chain (review 1).
+    policy = admit({"policy": "taint", "version": 1,
+                    "effects": {"read_ticket": {"kind": "read", "class": "none", "labels": ["reads-untrusted"]}},
+                    "rules": [{"id": "one-read", "type": "at-most", "guards": "read", "n": 5}]})
+    sink = MemorySink()
+    tools = govern([read_ticket, issue_refund], level="guard", policy=policy, sink=sink, handle_tool_errors=False)
+    FLAKY["T9"] = 1
+    with pytest.raises(RuntimeError):
+        agent(tools, [[call("read_ticket", "c1", ticket="T9")]]).invoke({"messages": [("user", "x")]}, cfg("open"))
+    tools.governor.close(cfg("open"))
+    guard = tools.governor.snapshot("open")["guard"]
+    assert guard["taint"]["untrusted"] is True
+    assert guard["trace"][-1] == {"seq": 1, "kind": "read", "ok": False}
+    events, _ = chain(sink, "open")
+    assert [e["kind"] for e in events][-2:] == ["observation", "closure"] and events[-2]["body"]["ok"] is False
+
+
+def test_a_sink_without_the_protocol_is_refused_at_guard_level_and_runs_of_serves_verify_thread(refunds_policy):
+    class BareSink:
+        def write(self, events, signed):
+            return {"written": len(events), "skipped": 0, "conflicts": []}
+
+    with pytest.raises(ValueError, match="runs_of"):
+        govern([read_ticket], level="guard", policy=refunds_policy, sink=BareSink(), store=__import__("polyflow_langgraph").MemoryThreadStore())
+
+    class ProtocolSink(BareSink):
+        def __init__(self):
+            self.inner = MemorySink()
+
+        def write(self, events, signed):
+            return self.inner.write(events, signed)
+
+        def head(self, run):
+            return self.inner.head(run)
+
+        def runs_of(self, ns, wf):
+            return self.inner.runs_of(ns, wf)
+
+    from polyflow_langgraph import MemoryThreadStore
+    sink = ProtocolSink()
+    tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink, store=MemoryThreadStore())
+    agent(tools, REFUND_SCRIPT[1:3]).invoke({"messages": [("user", "x")]}, cfg("proto"))
+    tools.governor.close(cfg("proto"))
+    assert verify_thread(sink, "proto")["ok"]
+    # ...and the fail-closed check goes through the same protocol: a lost record over an existing ledger refuses.
+    lost = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink, store=MemoryThreadStore())
+    CALLS.clear()
+    agent(lost, REFUND_SCRIPT[1:3]).invoke({"messages": [("user", "x")]}, cfg("proto"))
+    assert CALLS == []
+
+
+def test_a_turn_without_an_ai_message_id_is_keyed_by_its_checkpoint_not_mistaken_for_a_replay():
+    gov = Governor(sink=MemorySink(), tools=["read_ticket"])
+    ran = []
+    tc = call("read_ticket", "c1", ticket="T1")
+    for ckpt in ("ckpt-1", "ckpt-2"):   # two genuine turns, same call, an AIMessage with no id
+        ai = AIMessage(content="", tool_calls=[tc], id=None)
+        gov.wrap_tool_call(_request("noid", ckpt, [ai], tc), lambda r: ran.append(r) or _ok(r))
+    assert len(ran) == 2
+    # ...while a re-run of the SAME checkpoint is still a replay.
+    ai = AIMessage(content="", tool_calls=[tc], id=None)
+    out = gov.wrap_tool_call(_request("noid", "ckpt-2", [ai], tc), lambda r: ran.append(r) or _ok(r))
+    assert len(ran) == 2 and out.response_metadata["polyflow"]["replayed"]
+
+
+def test_a_subagent_with_its_own_message_list_is_not_reported_as_a_fork_but_a_real_fork_is():
+    forks = []
+    gov = Governor(sink=MemorySink(), tools=["read_ticket"], on_conflict=lambda run, seqs: forks.append(seqs))
+    run = lambda ckpt, msgs, tc: gov.wrap_tool_call(_request("f", ckpt, msgs, tc), _ok)
+    tA = call("read_ticket", "a", ticket="A"); aiA = AIMessage(content="", tool_calls=[tA], id="ai-A")
+    run("k1", [aiA], tA)
+    tB = call("read_ticket", "b", ticket="B"); aiB = AIMessage(content="", tool_calls=[tB], id="ai-B")
+    run("k2", [aiB], tB)                      # a subagent: its own list, no lineage to A
+    tC = call("read_ticket", "c", ticket="C"); aiC = AIMessage(content="", tool_calls=[tC], id="ai-C")
+    run("k3", [aiA, aiC], tC)                 # the main agent goes on from A: B is absent, and that is not a fork
+    assert forks == []
+    tE = call("read_ticket", "e", ticket="E"); aiE = AIMessage(content="", tool_calls=[tE], id="ai-E")
+    run("k4", [aiA, aiE], tE)                 # decided from A again while C (which descends from A) is absent: a fork
+    assert len(forks) == 1
+
+
+def test_a_result_json_cannot_carry_never_leaves_the_effect_open():
+    from polyflow_langgraph import MemoryThreadStore
+    import datetime
+    gov = Governor(sink=MemorySink(), tools=["read_ticket"])
+    tc = call("read_ticket", "c1", ticket="T1")
+    ai = AIMessage(content="", tool_calls=[tc], id="ai-1")
+    ran = []
+
+    def tool(req):
+        ran.append(1)
+        return ToolMessage(content=[{"type": "text", "text": "x", "when": datetime.date(2026, 9, 23)}], tool_call_id="c1")
+
+    out = gov.wrap_tool_call(_request("odd", "k1", [ai], tc), tool)
+    assert out.response_metadata["polyflow"]["effect"]
+    again = gov.wrap_tool_call(_request("odd", "k1", [ai], tc), tool)   # a replay: the effect was observed
+    assert ran == [1] and again.response_metadata["polyflow"]["replayed"] and "2026-09-23" in json.dumps(again.content)
+
+
+def test_tool_results_are_kept_beside_the_record_not_in_it(tmp_path):
+    from polyflow_langgraph import FileThreadStore
+    sink = FileSink(tmp_path / "ledger")
+    gov = Governor(sink=sink, tools=["read_ticket"])
+    tc = call("read_ticket", "c1", ticket="T1")
+    ai = AIMessage(content="", tool_calls=[tc], id="ai-1")
+    secret_ish = "the-full-tool-output-" * 50
+    gov.wrap_tool_call(_request("blob", "k1", [ai], tc), lambda r: ToolMessage(content=secret_ish, tool_call_id="c1"))
+    record = (tmp_path / "ledger" / "langgraph" / "blob" / "thread.state.json").read_text(encoding="utf-8")
+    assert secret_ish not in record and len(record) < 4000
+    blobs = list((tmp_path / "ledger" / "langgraph" / "blob" / "results").glob("*.json"))
+    assert len(blobs) == 1 and secret_ish in blobs[0].read_text(encoding="utf-8")
+    assert isinstance(gov.store, FileThreadStore)
+    replay = gov.wrap_tool_call(_request("blob", "k1", [ai], tc), lambda r: ToolMessage(content="never", tool_call_id="c1"))
+    assert replay.content == secret_ish

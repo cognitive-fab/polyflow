@@ -93,6 +93,9 @@ function verifyThreadDir(dir, flags, out) {
 }
 
 function verify({ pos, flags }, out) {
+  // `--thread` names a directory: given bare (`--thread --json dir`), the directory is the positional.
+  if (flags.thread === true && pos[0]) return verifyThreadDir(pos[0], flags, out);
+  if (flags.thread === true) throw new Usage('verify --thread needs a thread directory');
   if (typeof flags.thread === 'string') return verifyThreadDir(flags.thread, flags, out);
   const file = pos[0];
   if (!file) throw new Usage('verify needs a run ledger file');

@@ -30,7 +30,7 @@ This section and §3 describe the design as it now stands.
 | File | What it is |
 |---|---|
 | `platform/python/polyflow_langgraph/binding.py` | `govern(tools, level, policy, sink, store, signing_key, ...)` returns a `ToolNode` that has the governor on `.governor`. The file also holds: `Governor`, with `wrap_tool_call`/`awrap_tool_call`, `close` and `snapshot(thread)`; the pure guard path `govern_effect`/`observe_effect`; `idempotency_key`; `verify_thread` (the thread-level check, VF1); and `checkpoint_ms`. |
-| `platform/python/polyflow_langgraph/store.py` | The per-thread governance record: `MemoryThreadStore` and `FileThreadStore` (`<root>/<ns>/<thread>/thread.state.json` beside the `FileSink`'s run files, written atomically under an OS file lock). `store_for(sink)` places it with the sink by default. |
+| `platform/python/polyflow_langgraph/store.py` | The per-thread governance record: `MemoryThreadStore` and `FileThreadStore` (`<root>/<ns>/<thread>/thread.state.json` beside the `FileSink`'s run files, written atomically under an OS file lock; retained tool results are blobs under `results/`, one per effect, so the record stays small). `store_for(sink)` places it with the sink by default. |
 | `platform/python/polyflow_temporal/sinks.py` | `FileSink`, `MemorySink`, `partition_delta`, `safe_component` and `sign_head`/`head_message`, moved out of `plugin.py` so that they import without Temporal. `FileSink` now re-reads a run file that another writer changed (LG7). |
 | `platform/python/tests/test_langgraph.py`, `tests/test_review_p10.py` | 19 and 12 tests, offline, with a scripted chat model (§4) |
 | `platform/python/pyproject.toml` | `langgraph = ["langgraph>=1.2,<2", "langgraph-prebuilt>=1.1,<2"]` (the versions tested) and an explicit package list |
@@ -69,7 +69,15 @@ process that dies, re-runs from the last checkpoint. A replay from an old
 and effect outcomes are kept in a **per-thread record**, keyed by `(ns,
 thread_id)`. The record sits beside the sink: `thread.state.json` next to a
 `FileSink`'s files, or in memory next to a `MemorySink`. Any other sink needs an
-explicit `store=` at guard level.
+explicit `store=` at guard level, and it must implement the sink protocol
+(`write`, `head`, `runs_of(ns, wf)`): `runs_of` is how the guard tells that a
+thread's ledger already exists (the fail-closed check) and how `verify_thread`
+reads a thread. A guard-level sink without it is refused at construction.
+
+Retained tool results (for replays) are kept as blobs beside the record, one per
+effect, never inside it: a transaction reads and writes the small record only.
+A result JSON cannot carry is written as its `str`; writing the outcome never
+fails after the tool ran.
 
 The binding never reads anything back from message metadata. The
 `response_metadata["polyflow"]` it attaches (effect id and idempotency key) is
@@ -140,11 +148,15 @@ append, so no planted message can get a chain signed (LG2).
     they could the sink.
 - **An outcome that is never recorded.** If a tool ran and the process died, and
   the thread is never resumed, the record holds an open effect. `close()`
-  observes it as `ok: false, "no outcome recorded before close"`.
-- **Fork detection is a heuristic.** A turn whose state holds an older decided
-  turn but not the newest one is reported as a fork. Two subagents that take
-  turns on one thread can trigger it. The report is only a warning: governance
-  always uses the thread's latest state.
+  observes it as `ok: false, "no outcome recorded before close"` and folds
+  that outcome into the guard state (taint, trace) like any failed outcome, so
+  the next linked chain inherits it.
+- **Fork detection is a heuristic.** Each decided turn records its parent (the
+  latest decided turn present in its state). A turn is reported as a fork when
+  its state holds a decided turn from which a later, absent turn descends. A
+  subagent with its own message list has its own lineage, so its newer turns
+  are not reported as forks of the main agent's (tested). The report is only a
+  warning: governance always uses the thread's latest state.
 - **Old turns.** The record keeps the last 512 turns. A replay of an older turn
   is decided again, against the current state, so budgets still hold.
 - **Replay determinism of the agent.** Nothing checks that the graph code is

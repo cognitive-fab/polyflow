@@ -45,7 +45,6 @@ import copy
 import dataclasses
 import json
 import logging
-import threading
 import time
 import uuid
 
@@ -53,7 +52,7 @@ from polyflow_temporal.canonical import digest
 from polyflow_temporal.ledger import Ledger, verify_chain
 from polyflow_temporal.redact import redact
 from polyflow_temporal.rules import Guard, check_admitted, classify, route_target
-from polyflow_temporal.sinks import FileSink, MemorySink, _load_signer, sign_head
+from polyflow_temporal.sinks import _load_signer, sign_head
 
 from .store import MemoryThreadStore, sink_holds_thread, store_for
 
@@ -216,6 +215,9 @@ class Governor:
         self.policy = policy if level == "guard" else None
         self.guard = Guard(self.policy) if self.policy else None
         self.sink = sink
+        if level == "guard" and sink is not None and not callable(getattr(sink, "runs_of", None)):
+            raise ValueError("this sink has no runs_of(ns, wf): the guard cannot tell whether a thread's ledger already exists "
+                             "(the fail-closed check); implement the sink protocol (write, head, runs_of)")
         self.store = store or store_for(sink)
         if self.store is None:
             if sink is not None and level == "guard":
@@ -282,7 +284,7 @@ class Governor:
         ledger = self._admit({"ns": self.ns, "wf": thread, "run": run_id}, at, thread, base, link)
         if rec is None:
             rec = {"v": 1, "ns": self.ns, "thread": thread, "runs": [], "guard": self.guard.init() if self.guard else None,
-                   "turns": {}, "recent": [], "effects": {}, "results": {}, "pending": []}
+                   "turns": {}, "recent": [], "effects": {}, "results": [], "pending": []}
         rec.update({"run": dict(ledger.run), "head": ledger.head(), "closed": False, "closure": None})
         rec["runs"].append(run_id)
         rec["pending"].extend(ledger.events())
@@ -336,8 +338,10 @@ class Governor:
                                    "message": msg, "witness": None} for i, c in enumerate(calls)], "transient": True}, None
             if rec is None or rec["closed"]:
                 rec = self._new_chain(rec, thread, base, at)
-            else:
-                self._report_fork(rec, messages)
+            present = {getattr(m, "id", None) for m in messages} - {None}
+            parent = next((k for k, aid in reversed(rec["recent"]) if aid in present), None)
+            if rec["turns"]:
+                self._report_fork(rec, parent)
             ledger = Ledger(rec["run"], rec["head"])
             state = rec["guard"]
             ids = [c.get("id") for c in calls]
@@ -385,7 +389,7 @@ class Governor:
                                         "wantsResult": bool(self.guard) and (self._metered_all or cls["kind"] in self._metered)}
                 entry.update({"outcome": "allowed", "effect": ekey, "idempotencyKey": idempotency_key(rec["run"], eid)})
                 entries.append(entry)
-            turn = {"calls": entries, "first": first, "run": dict(rec["run"]), "ai": ai_id}
+            turn = {"calls": entries, "first": first, "run": dict(rec["run"]), "ai": ai_id, "parent": parent}
             rec["turns"][turn_key] = turn
             rec["recent"].append([turn_key, ai_id])
             self._trim(rec)
@@ -395,18 +399,25 @@ class Governor:
             tx.commit(rec)
             return turn, rec
 
-    def _report_fork(self, rec: dict, messages: list):
-        """A turn decided on a state that holds an older decided turn but not the newest
-        one is a time-travel fork. It is governed against the thread's latest state; say so."""
-        present = {getattr(m, "id", None) for m in messages}
+    def _report_fork(self, rec: dict, parent):
+        """A time-travel fork: the state holds a decided turn (``parent``) from which a
+        LATER turn was decided (its lineage leads back to ``parent``), and that later
+        turn is absent. A subagent with its own message list has its own lineage, so
+        its newer turns are not a fork of this one (review 4). Governance never
+        depends on this report: the turn is decided on the thread's latest state."""
         recent = rec["recent"]
-        for j in range(len(recent) - 1, -1, -1):
-            if recent[j][1] is not None and recent[j][1] in present:
-                if j < len(recent) - 1:
-                    later = rec["turns"].get(recent[j + 1][0])
-                    self._conflict(rec["run"], [later["first"]] if later else [],
+        keys = [k for k, _ in recent]
+        start = keys.index(parent) + 1 if parent in keys else 0
+        for key in keys[start:]:
+            turn = rec["turns"].get(key)
+            lineage, seen = turn.get("parent") if turn else None, set()
+            while lineage is not None and lineage not in seen:
+                if lineage == parent:
+                    self._conflict(rec["run"], [turn["first"]],
                                    "a time-travel fork: governed against the thread's latest guard state, not the fork point's")
-                return
+                    return
+                seen.add(lineage)
+                lineage = (rec["turns"].get(lineage) or {}).get("parent")
 
     def _trim(self, rec: dict):
         while len(rec["recent"]) > TURNS_KEPT:
@@ -416,14 +427,14 @@ class Governor:
                 eff = rec["effects"].get(e.get("effect"))
                 if eff and eff["observed"]:
                     rec["effects"].pop(e["effect"], None)
-                    rec["results"].pop(e["effect"], None)
+                    self._drop_result(rec, e["effect"])
 
     def _start(self, thread: str, ekey: str):
         with self.store.transaction(self.ns, thread) as tx:
             rec = tx.record
             eff = rec["effects"].get(ekey)
             if eff is None or eff["observed"]:
-                return "replay", (rec["results"].get(ekey), eff)
+                return "replay", (self.store.get_blob(self.ns, thread, ekey) if ekey in rec["results"] else None, eff)
             eff["attempts"] += 1
             tx.commit(rec)
             return "run", eff["attempts"]
@@ -450,12 +461,19 @@ class Governor:
                 rec["guard"] = observe_effect(self.guard, rec["guard"], eff["kind"], ok, labels=eff["labels"], result=result, seq=eff["guardSeq"])
             eff["observed"] = True
             if not via_command:
-                rec["results"][ekey] = {"content": content, "status": status}
+                # The result is a blob beside the record (review 6): the record stays small.
+                self.store.put_blob(self.ns, thread, ekey, {"content": content, "status": status})
+                rec["results"].append(ekey)
                 while len(rec["results"]) > RESULTS_KEPT:
-                    rec["results"].pop(next(iter(rec["results"])))
+                    self._drop_result(rec, rec["results"][0])
             self._export(rec)
             tx.commit(rec)
             return eff
+
+    def _drop_result(self, rec: dict, ekey: str):
+        if ekey in rec["results"]:
+            rec["results"].remove(ekey)
+        self.store.delete_blob(self.ns, rec["thread"], ekey)
 
     # ---- the ToolNode seam -------------------------------------------------------------
     def _enter(self, request):
@@ -477,7 +495,10 @@ class Governor:
             return "return", _refusal(request, "PolyflowRefused",
                                       f"the model turn holding this call is not in the state's '{self.messages_key}': refused")
         ai_id = getattr(ai, "id", None) if ai is not None else None
-        turn_key = digest({"ai": ai_id, "calls": [_signature(c) for c in calls]})
+        # A turn is its AIMessage id plus its calls. Without an id (a reducer that assigns
+        # none), the checkpoint stands in, so a later genuine turn with the same calls is
+        # never mistaken for a replay (review 3).
+        turn_key = digest({"ai": ai_id, "calls": [_signature(c) for c in calls], **({} if ai_id else {"checkpoint": str(base)})})
         turn, _ = self._decide(thread, str(base), turn_key, ai_id, calls, messages)
         sig = _signature(request.tool_call)
         matches = [e for e in turn["calls"] if e["sig"] == sig]
@@ -546,10 +567,15 @@ class Governor:
             return None
         return {"run": rec["run"], "head": rec["head"], "guard": rec["guard"], "closed": rec["closed"], "runs": list(rec["runs"])}
 
-    def close(self, graph, config, outcome: str = "completed") -> dict | None:
+    def close(self, config, legacy=None, *, outcome: str = "completed") -> dict | None:
         """Append the closure to the thread's chain and export it. An effect still open
-        is observed as "no outcome recorded before close". Idempotent. A thread that
-        goes on afterwards starts a new chain whose admission ``continues`` the closure."""
+        is observed as "no outcome recorded before close", and folded into the guard
+        state like any failed outcome. Idempotent. A thread that goes on afterwards
+        starts a new chain whose admission ``continues`` the closure.
+        ``config`` is the thread's LangGraph config. (The former ``(graph, config)``
+        form is still accepted; the graph was never used.)"""
+        if legacy is not None:
+            config = legacy
         thread = str(((config or {}).get("configurable") or {}).get("thread_id"))
         with self.store.transaction(self.ns, thread) as tx:
             rec = tx.record
@@ -561,6 +587,7 @@ class Governor:
                 for eff in rec["effects"].values():
                     if not eff["observed"] and eff["run"] == rec["run"]:
                         ledger.append("observation", {"effect": eff["id"], "ok": False, "error": "no outcome recorded before close"}, at)
+                        rec["guard"] = observe_effect(self.guard, rec["guard"], eff["kind"], False, labels=eff["labels"], seq=eff["guardSeq"])
                         eff["observed"] = True
                 ledger.append("closure", {"outcome": outcome}, at)
                 rec["head"] = ledger.head()
@@ -593,32 +620,19 @@ def govern(tools, *, level: str = "observe", policy: dict | None = None, sink=No
     return node
 
 
-def close(governed, graph, config, outcome: str = "completed"):
-    """``governed`` is what ``govern`` returned, or a ``Governor``."""
+def close(governed, config, legacy=None, *, outcome: str = "completed"):
+    """``governed`` is what ``govern`` returned, or a ``Governor``; ``config`` the thread's config."""
     governor = governed if isinstance(governed, Governor) else governed.governor
-    return governor.close(graph, config, outcome)
+    return governor.close(config, legacy, outcome=outcome)
 
 
 # ---- checking a thread's record (VF1) ---------------------------------------------
 
 def _thread_runs(sink, ns: str, thread: str) -> dict:
-    out = {}
-    if isinstance(sink, MemorySink):
-        for (n, w, run), r in sink.runs.items():
-            if n == ns and w == thread:
-                out[run] = [r["events"][s] for s in sorted(r["events"])]
-    elif isinstance(sink, FileSink):
-        from polyflow_temporal.sinks import safe_component
-        d = sink.root.resolve() / safe_component(ns) / safe_component(thread)
-        if d.is_dir():
-            for p in d.iterdir():
-                if p.name.endswith(".jsonl") and not p.name.endswith(".heads.jsonl"):
-                    events = sorted(sink._read_jsonl(p), key=lambda e: e.get("seq", -1))
-                    if events:
-                        out[events[0]["run"]["run"]] = events
-    else:
-        raise TypeError("verify_thread reads a FileSink or a MemorySink")
-    return out
+    runs_of = getattr(sink, "runs_of", None)
+    if not callable(runs_of):
+        raise TypeError("verify_thread needs a sink with runs_of(ns, wf) (FileSink and MemorySink have it)")
+    return runs_of(ns, thread)
 
 
 def verify_thread(sink, thread: str, ns: str = "langgraph") -> dict:

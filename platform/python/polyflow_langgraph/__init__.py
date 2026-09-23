@@ -10,7 +10,7 @@ call exactly as it decides an activity on Temporal (plan P10).
     tools = govern([read_ticket, issue_refund], level="guard", policy=admitted, sink=FileSink("./ledger"))
     agent = create_react_agent(model, tools, checkpointer=saver)   # the agent's code is unchanged
     ...
-    tools.governor.close(agent, config)                             # optional: the final closure
+    tools.governor.close(config)                                    # optional: the final closure
 
 The thread's chain and guard state live in a per-thread record beside the sink
 (store.py), never in the agent's messages.
