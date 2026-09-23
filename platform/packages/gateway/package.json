@@ -1,0 +1,29 @@
+{
+  "name": "@cognitive-fab/polyflow-gateway",
+  "version": "0.1.0",
+  "description": "The agent gateway: polyflow's six MCP work-order tools, backed by governed runs on a Temporal namespace.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "polyflow-gateway": "bin/polyflow-gateway.mjs"
+  },
+  "files": [
+    "src",
+    "bin",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --no-warnings --test --test-concurrency=1 --test-timeout=180000 \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@cognitive-fab/polyflow": "^0.4.2",
+    "@cognitive-fab/polyflow-kernel": "0.1.0",
+    "@cognitive-fab/polyflow-temporal": "0.1.0",
+    "@temporalio/client": "^1.24.0"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "^1.24.0",
+    "@temporalio/worker": "^1.24.0"
+  },
+  "license": "Apache-2.0"
+}
