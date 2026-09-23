@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "What a governed run is",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "What a governed run is",
+        "focus": [
+          "governed",
+          "machine-host"
+        ],
+        "note": "GovernedWorkflow steps a certified SAM machine. Each accepted step emits work orders and timers; orders run as worker activities or wait fo…"
+      },
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "interceptor",
+          "governed",
+          "machine-host"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "governed",
+      "type": "backend",
+      "label": "GovernedWorkflow",
+      "pos": [
+        700,
+        423
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "hosts a machine",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/governed-workflow.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-host",
+      "type": "backend",
+      "label": "SAM machine host",
+      "pos": [
+        1020,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "SAM v2 strict",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/machine-host.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-dir",
+      "type": "database",
+      "label": "Machine directory",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "descriptor, contract",
+      "sources": [
+        {
+          "path": "platform/examples/customer-brief/polyflow.workflow.json"
+        },
+        {
+          "path": "platform/examples/customer-brief/effects.cjs"
+        }
+      ]
+    },
+    {
+      "id": "interceptor",
+      "type": "backend",
+      "label": "Workflow interceptor",
+      "pos": [
+        1020,
+        486
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "outbound + inbound",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "MCP gateway",
+      "pos": [
+        380,
+        111
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "six unchanged tools",
+      "sources": [
+        {
+          "path": "platform/packages/gateway/src/temporal-polyflow.mjs"
+        },
+        {
+          "path": "src/mcp.mjs",
+          "label": "the MCP server and argument checks"
+        }
+      ]
+    },
+    {
+      "id": "mcp-agent",
+      "type": "external",
+      "label": "MCP agent",
+      "pos": [
+        60,
+        174
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "Claude Code, OpenWorker.."
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "interceptor",
+        "governed",
+        "machine-host"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "governed",
+      "to": "machine-host",
+      "label": "step the machine",
+      "labelAt": [
+        935,
+        375
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "from": "governed",
+      "to": "interceptor",
+      "label": "orders as activities",
+      "labelAt": [
+        1000,
+        438
+      ]
+    },
+    {
+      "from": "gateway",
+      "to": "governed",
+      "label": "start, report, claim · gRPC",
+      "labelAt": [
+        615,
+        126
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "mcp-agent",
+      "to": "gateway",
+      "label": "six MCP tools · stdio",
+      "labelAt": [
+        295,
+        126
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "GovernedWorkflow steps a certified SAM machine",
+        "Each accepted step emits work orders and timers",
+        "orders run as worker activities or wait for an external performer through the gateway, and every completion is a proposal the machine accepts or observably rejects"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "Admission and certificates, which are question five",
+        "the judge, which is question nine",
+        "Connected but out of scope: Customer workflow, Rule kernel, Ledger chain, Sealed headers, Temporal server, Verified principals"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "What it guarantees",
+      "items": [
+        "A verdict is the same on every replay — the guard and the ledger are pure JavaScript with no I/O, and the isolate supplies the clock"
+      ]
+    }
+  ]
+}

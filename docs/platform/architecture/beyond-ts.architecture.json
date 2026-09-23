@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How the platform works beyond TypeScript and Temporal",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "How the platform works beyond TypeScript and Te…",
+        "focus": [
+          "py-kernel",
+          "quickjs"
+        ],
+        "note": "The Python port reproduces canonical JSON, the chain, the guard and redaction exactly, pinned by vectors generated from the TypeScript kern…"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "py-plugin",
+      "type": "backend",
+      "label": "Python plugin",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "G0/G1, OpenAI Agents SDK",
+      "sources": [
+        {
+          "path": "platform/python/polyflow_temporal/plugin.py"
+        },
+        {
+          "path": "platform/python/examples/openai_agents/policy.json",
+          "label": "routes for the Agents SDK"
+        }
+      ]
+    },
+    {
+      "id": "py-kernel",
+      "type": "backend",
+      "label": "Python kernel port",
+      "pos": [
+        700,
+        111
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "byte-identical",
+      "sources": [
+        {
+          "path": "platform/python/polyflow_temporal/rules.py"
+        },
+        {
+          "path": "platform/conformance/generate-guard.mjs",
+          "label": "vectors are generated from the TS kernel"
+        }
+      ]
+    },
+    {
+      "id": "quickjs",
+      "type": "security",
+      "label": "QuickJS machine host",
+      "pos": [
+        380,
+        111
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "wasm, no host access",
+      "tag": "partial",
+      "sources": [
+        {
+          "path": "platform/python/polyflow_temporal/machine_host.py"
+        },
+        {
+          "path": "platform/python/polyflow_temporal/quickjs_engines.py"
+        }
+      ]
+    },
+    {
+      "id": "langgraph",
+      "type": "backend",
+      "label": "LangGraph binding",
+      "pos": [
+        60,
+        174
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "second engine, G0/G1",
+      "sources": [
+        {
+          "path": "platform/python/polyflow_langgraph/binding.py"
+        },
+        {
+          "path": "platform/python/polyflow_langgraph/store.py"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Python worker",
+      "wraps": [
+        "py-plugin",
+        "py-kernel",
+        "quickjs",
+        "langgraph"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "py-plugin",
+      "to": "py-kernel",
+      "label": "same guard, same chain",
+      "labelAt": [
+        295,
+        63
+      ]
+    },
+    {
+      "from": "langgraph",
+      "to": "py-kernel",
+      "label": "same guard, same chain",
+      "labelAt": [
+        295,
+        126
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "The Python port reproduces canonical JSON, the chain, the guard and redaction exactly, pinned by vectors generated from the TypeScript kernel",
+        "Its plugin governs Python workflows, including an unmodified Agents SDK agent with tools classified by route",
+        "QuickJS runs the TypeScript machine host unchanged for G2, and the LangGraph binding reuses the same kernel with a per-thread record"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "The TypeScript plugin's own path (question one), the CLI and sinks the Python ledgers verify under, and the gateway, which is TypeScript only",
+        "Connected but out of scope: Temporal server, SAM machine host, Sinks"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Constraints",
+      "items": [
+        "Python has no GovernedWorkflow yet — the QuickJS host proves the sandbox and the step semantics; mapping orders to activities and timers in a Python workflow is not built"
+      ]
+    }
+  ]
+}

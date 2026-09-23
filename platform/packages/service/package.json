@@ -1,0 +1,26 @@
+{
+  "name": "@cognitive-fab/polyflow-service",
+  "version": "0.1.1",
+  "description": "The optional governance service: a ledger sink that notices tampering, offline-verifiable runs, run reports, the evidence pack, metrics and a read-only console.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "polyflow-service": "bin/polyflow-service.mjs"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@cognitive-fab/polyflow-kernel": "0.1.0",
+    "@cognitive-fab/polyflow-temporal": "0.1.1"
+  },
+  "license": "BUSL-1.1",
+  "devDependencies": {
+    "@temporalio/common": "^1.24.0"
+  },
+  "files": [
+    "src",
+    "bin",
+    "LICENSE"
+  ]
+}

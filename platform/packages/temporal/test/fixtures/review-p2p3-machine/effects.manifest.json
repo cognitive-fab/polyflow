@@ -1,0 +1,6 @@
+{
+  "effects": {
+    "work": { "onSuccess": { "action": "WORK_DONE" }, "retry": { "maxAttempts": 1, "timeoutMs": 60000 } },
+    "notify": { "onSuccess": { "action": "NOTIFIED" }, "retry": { "maxAttempts": 1, "timeoutMs": 60000 } }
+  }
+}

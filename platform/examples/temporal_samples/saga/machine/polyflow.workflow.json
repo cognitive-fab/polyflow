@@ -1,0 +1,48 @@
+{
+  "name": "saga",
+  "description": "Temporal's saga sample (openAccount) as a certified machine: four steps in order; a failure compensates what succeeded before it, last first.",
+  "area": "samples/saga",
+  "inputAction": "START",
+  "tools": {
+    "createAccount": {
+      "tool": "createAccount",
+      "why": "open the account (the sample's activity, unchanged)"
+    },
+    "addAddress": {
+      "tool": "addAddress",
+      "why": "register the postal address (the sample's activity, unchanged)"
+    },
+    "addClient": {
+      "tool": "addClient",
+      "why": "register the client (the sample's activity, unchanged)"
+    },
+    "addBankAccount": {
+      "tool": "addBankAccount",
+      "why": "connect the bank account (the sample's activity, unchanged)"
+    },
+    "removeClient": {
+      "tool": "removeClient",
+      "why": "compensation: undo addClient"
+    },
+    "clearPostalAddresses": {
+      "tool": "clearPostalAddresses",
+      "why": "compensation: undo addAddress"
+    }
+  },
+  "key": {
+    "template": "{accountId}",
+    "fields": {
+      "accountId": {
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "the account's id; a second start for the same account attaches to the first run"
+      }
+    }
+  },
+  "stopAction": "STOP",
+  "unstoppable": {
+    "adding_client": "a step succeeded before this one: a stop would leave it un-compensated; CANCEL compensates what succeeded and ends the run",
+    "adding_bank": "a step succeeded before this one: a stop would leave it un-compensated; CANCEL compensates what succeeded and ends the run",
+    "undo_client": "compensating: stopping would leave the account half undone",
+    "undo_address": "compensating: stopping would leave the account half undone"
+  }
+}

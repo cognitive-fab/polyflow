@@ -1,0 +1,943 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "routed-report",
+      "policy": {
+        "policy": "routed-report",
+        "version": 1,
+        "effects": {
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "routes": {
+          "Tickets-stateless-call-tool-v2": "0.tool_name"
+        },
+        "unlabelled": "report",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:2c65beda923764301153c37a1f484bf072d278dbc5b90560c3c680a2b6984bda",
+        "kinds": [
+          "read",
+          "refund"
+        ],
+        "notes": []
+      },
+      "steps": [
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "at": 1,
+            "args": [
+              {
+                "tool_name": "read_ticket"
+              }
+            ],
+            "proposal": "p1"
+          },
+          "classification": {
+            "kind": "read",
+            "class": "none",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:998a8ee7e28cd29e82855bcb67729294020a32cb769c596874b0a1046b69080d"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "ok": true
+          },
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_REFUND",
+            "at": 2,
+            "args": [
+              {
+                "tool_name": "issue_REFUND"
+              }
+            ],
+            "proposal": "p2"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:issue_REFUND",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:87b5781c59bb0507a0f9c9b535a24fe939bfd36133d6fd47fe8a5bb92a9ace4c",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2: issue_refund",
+            "at": 3,
+            "args": [
+              {
+                "tool_name": " issue_refund"
+              }
+            ],
+            "proposal": "p3"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2: issue_refund",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:78f598df3c83dd4dd9d14b3d964e50c42eb1c630814302f35f5e6222dfd294b5",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:?",
+            "at": 4,
+            "args": [
+              {}
+            ],
+            "proposal": "p4"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:?",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:041da28697c68a0add9ead1a0e3321e27a8a93fa3758aff9d68509477712ca7d",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-p5",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5",
+            "at": 5
+          },
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "at": 5,
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:delete_all",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:32b69990cd256540eb591422b87e72c32e3a62cc9fcc643fd9e50973695cc5bd",
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "plain_unlabelled_tool",
+            "at": 6,
+            "args": [],
+            "proposal": "p6"
+          },
+          "classification": {
+            "kind": "unlabelled:plain_unlabelled_tool",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:f4103b5746d3bc5b53fea6a425c2cd4b7bf23f825b7b26171e3019a604e78aae"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Other-call-tool:x",
+            "at": 7,
+            "args": [],
+            "proposal": "p7"
+          },
+          "classification": {
+            "kind": "unlabelled:Other-call-tool:x",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:7ccc59dcbc417b850b19c304a93684953dcc180f16ad9e264958b6b05f08b2ab"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 8,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p8"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "one-refund"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:5674d6a3e93293411e6e7e3730ef46c662a82acfa259890fec3340b6da1f2ba3"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 9,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p9"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "one-refund"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:2758a8f0a3464600d1e86869e6c0d39835be55ad914da692119e92f2327ca8fb",
+          "stateDigest": "sha256:5674d6a3e93293411e6e7e3730ef46c662a82acfa259890fec3340b6da1f2ba3"
+        }
+      ]
+    },
+    {
+      "name": "routed-escalate",
+      "policy": {
+        "policy": "routed-escalate",
+        "version": 1,
+        "effects": {
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "routes": {
+          "Tickets-stateless-call-tool-v2": "0.tool_name"
+        },
+        "unlabelled": "escalate",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          }
+        ],
+        "escalation": {
+          "role": "approver",
+          "timeoutMs": 1000
+        },
+        "digest": "sha256:5f49d4c802cba77713ab1174997cd0bcab5933c1c79f935cf89558929017d4a4",
+        "kinds": [
+          "read",
+          "refund"
+        ],
+        "notes": []
+      },
+      "steps": [
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "at": 1,
+            "args": [
+              {
+                "tool_name": "read_ticket"
+              }
+            ],
+            "proposal": "p1"
+          },
+          "classification": {
+            "kind": "read",
+            "class": "none",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:998a8ee7e28cd29e82855bcb67729294020a32cb769c596874b0a1046b69080d"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "ok": true
+          },
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_REFUND",
+            "at": 2,
+            "args": [
+              {
+                "tool_name": "issue_REFUND"
+              }
+            ],
+            "proposal": "p2"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:issue_REFUND",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:b2f2104bdc4c8ff332da5fb2c5b38708dab2377ba56d70af79d8a76abe32460b",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2: issue_refund",
+            "at": 3,
+            "args": [
+              {
+                "tool_name": " issue_refund"
+              }
+            ],
+            "proposal": "p3"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2: issue_refund",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:86933da71b7493316a9c84ef9c65a1d4d565aee1d45c742806bd92f333d88f84",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:?",
+            "at": 4,
+            "args": [
+              {}
+            ],
+            "proposal": "p4"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:?",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:614e79901b24eedcd3e77c2f0f8feffca4d03330a962f42665d568a5fd43087d",
+          "stateDigest": "sha256:9c0403d862ad1b6c339302b3550488d1831dd14da48186c9510d8aed222c089c"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-p5",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5",
+            "at": 5
+          },
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "at": 5,
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:delete_all",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:abc0521a4642b883b405ae39fb6dea36abd8532b77cfabecff1e0ffe14f0330d",
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "plain_unlabelled_tool",
+            "at": 6,
+            "args": [],
+            "proposal": "p6"
+          },
+          "classification": {
+            "kind": "unlabelled:plain_unlabelled_tool",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:79677a412651e80e8f537e229146411895161bd87d0ebb41f6a1379887807a34",
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Other-call-tool:x",
+            "at": 7,
+            "args": [],
+            "proposal": "p7"
+          },
+          "classification": {
+            "kind": "unlabelled:Other-call-tool:x",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "escalate",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:f7c3f97cb50e2821ecfb0fab64352c91daf3a14d023bfe2aa48a4c2f3bb5529d",
+          "stateDigest": "sha256:73a3cfca6c612c124cc6df9cb53617a499cf32ff603b7de42c4c62d31b5034cd"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 8,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p8"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "one-refund"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:6a11cf25792b50d6d96bfff3e0c269d4152d6cca2cd410affed69a9662eece20"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 9,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p9"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "one-refund"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:6612de1a3b8c0eaac3bc8460bf1e65c80b533f36c8a2a067059f63d171be8759",
+          "stateDigest": "sha256:6a11cf25792b50d6d96bfff3e0c269d4152d6cca2cd410affed69a9662eece20"
+        }
+      ]
+    },
+    {
+      "name": "routed-budget",
+      "policy": {
+        "policy": "routed-budget",
+        "version": 1,
+        "effects": {
+          "Tickets-stateless-call-tool-v2:read_ticket": {
+            "kind": "read",
+            "class": "none",
+            "labels": []
+          },
+          "Tickets-stateless-call-tool-v2:issue_refund": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": []
+          }
+        },
+        "routes": {
+          "Tickets-stateless-call-tool-v2": "0.tool_name"
+        },
+        "unlabelled": "report",
+        "rules": [
+          {
+            "id": "one-refund",
+            "type": "at-most",
+            "outcome": "deny",
+            "guards": "refund",
+            "n": 1
+          },
+          {
+            "id": "calls",
+            "type": "budget",
+            "outcome": "deny",
+            "metric": "effects",
+            "max": 2,
+            "kinds": null
+          }
+        ],
+        "escalation": null,
+        "digest": "sha256:2f99681dfb8eb2dcef4a9a64957a85201e9a3960a7e9a234f3490c1ad823d9f1",
+        "kinds": [
+          "read",
+          "refund"
+        ],
+        "notes": []
+      },
+      "steps": [
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "at": 1,
+            "args": [
+              {
+                "tool_name": "read_ticket"
+              }
+            ],
+            "proposal": "p1"
+          },
+          "classification": {
+            "kind": "read",
+            "class": "none",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:f070a91400605d30b6f06ffbcaa48e6671e13f92be2ef02aff12b2131fb1ef81"
+        },
+        {
+          "op": {
+            "op": "observe",
+            "activity": "Tickets-stateless-call-tool-v2:read_ticket",
+            "ok": true
+          },
+          "stateDigest": "sha256:e14127c6e86bf8b066a97af6470fc00220f446d356bdb0008ac7aabb055c1539"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_REFUND",
+            "at": 2,
+            "args": [
+              {
+                "tool_name": "issue_REFUND"
+              }
+            ],
+            "proposal": "p2"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:issue_REFUND",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:3cd5d13eb9b5e5620f2e761611d4a756f0a5ae4a6ebeffd88e9ab3519bbe13e0",
+          "stateDigest": "sha256:e14127c6e86bf8b066a97af6470fc00220f446d356bdb0008ac7aabb055c1539"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2: issue_refund",
+            "at": 3,
+            "args": [
+              {
+                "tool_name": " issue_refund"
+              }
+            ],
+            "proposal": "p3"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2: issue_refund",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:49c6d1d11a47f5f2356a7ec045082a80fdc66bc6ba70c9926d6ec2ddfa8a055a",
+          "stateDigest": "sha256:e14127c6e86bf8b066a97af6470fc00220f446d356bdb0008ac7aabb055c1539"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:?",
+            "at": 4,
+            "args": [
+              {}
+            ],
+            "proposal": "p4"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:?",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:05be5fc3f0c80ee6962b135e1f605d5eec7fc99562182eadd48320b4cdd91e89",
+          "stateDigest": "sha256:e14127c6e86bf8b066a97af6470fc00220f446d356bdb0008ac7aabb055c1539"
+        },
+        {
+          "op": {
+            "op": "grant",
+            "id": "ap-p5",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5",
+            "at": 5
+          },
+          "stateDigest": "sha256:77fb4f459ca99f027b56e873b469ed52390dc1e0a4a53e39cde33c09696998bc"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:delete_all",
+            "at": 5,
+            "args": [
+              {
+                "tool_name": "delete_all"
+              }
+            ],
+            "proposal": "p5"
+          },
+          "classification": {
+            "kind": "unlabelled:Tickets-stateless-call-tool-v2:delete_all",
+            "class": "unknown",
+            "labels": [],
+            "declared": false,
+            "routed": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "unlabelled"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:5bc7ed6addb4a6bd5ea0dca7aaa5140a8bfd88d343451964e44b3c9abdbd306c",
+          "stateDigest": "sha256:77fb4f459ca99f027b56e873b469ed52390dc1e0a4a53e39cde33c09696998bc"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "plain_unlabelled_tool",
+            "at": 6,
+            "args": [],
+            "proposal": "p6"
+          },
+          "classification": {
+            "kind": "unlabelled:plain_unlabelled_tool",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "allow",
+            "rules": [
+              "unlabelled",
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": null,
+          "stateDigest": "sha256:4d4785b7669baba9ff496c2ea6fcef68f8737c229f7b344fe72300369a2efe7b"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Other-call-tool:x",
+            "at": 7,
+            "args": [],
+            "proposal": "p7"
+          },
+          "classification": {
+            "kind": "unlabelled:Other-call-tool:x",
+            "class": "unknown",
+            "labels": [],
+            "declared": false
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:f2b9db83ad39ebd1f7fd503343e71f6d00a3f67aba3bdb7d622bc098e7ace491",
+          "stateDigest": "sha256:4d4785b7669baba9ff496c2ea6fcef68f8737c229f7b344fe72300369a2efe7b"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 8,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p8"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:6fabd607e17ad2974bb6028e84b1fe1da43055ffceef223929e1e0910e4e4742",
+          "stateDigest": "sha256:4d4785b7669baba9ff496c2ea6fcef68f8737c229f7b344fe72300369a2efe7b"
+        },
+        {
+          "op": {
+            "op": "decide-commit",
+            "activity": "Tickets-stateless-call-tool-v2:issue_refund",
+            "at": 9,
+            "args": [
+              {
+                "tool_name": "issue_refund"
+              }
+            ],
+            "proposal": "p9"
+          },
+          "classification": {
+            "kind": "refund",
+            "class": "irreversible",
+            "labels": [],
+            "declared": true
+          },
+          "decision": {
+            "outcome": "deny",
+            "rules": [
+              "calls"
+            ],
+            "approval": null
+          },
+          "witnessDigest": "sha256:6fabd607e17ad2974bb6028e84b1fe1da43055ffceef223929e1e0910e4e4742",
+          "stateDigest": "sha256:4d4785b7669baba9ff496c2ea6fcef68f8737c229f7b344fe72300369a2efe7b"
+        }
+      ]
+    }
+  ]
+}

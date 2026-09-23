@@ -1,0 +1,315 @@
+{
+  "version": 1,
+  "rule": "pick: JS property access over JSON values; redact: kernel redact.mjs, default max 200",
+  "pick": [
+    {
+      "name": "array index then key",
+      "result": "{\"items\":[{\"n\":2}]}",
+      "from": "items.0.n",
+      "meter": 2
+    },
+    {
+      "name": "array length",
+      "result": "{\"a\":[1,2,3]}",
+      "from": "a.length",
+      "meter": 3
+    },
+    {
+      "name": "top-level array index",
+      "result": "[7,8]",
+      "from": "1",
+      "meter": 8
+    },
+    {
+      "name": "nested arrays",
+      "result": "[[1,[2,3]]]",
+      "from": "0.1.1",
+      "meter": 3
+    },
+    {
+      "name": "non-canonical index",
+      "result": "{\"a\":[1,2,3]}",
+      "from": "a.01",
+      "meter": null
+    },
+    {
+      "name": "negative index",
+      "result": "{\"a\":[1,2,3]}",
+      "from": "a.-1",
+      "meter": null
+    },
+    {
+      "name": "index past the end",
+      "result": "{\"a\":[1]}",
+      "from": "a.1",
+      "meter": null
+    },
+    {
+      "name": "exponent index",
+      "result": "{\"a\":[1,2]}",
+      "from": "a.1e0",
+      "meter": null
+    },
+    {
+      "name": "object with a numeric key",
+      "result": "{\"a\":{\"0\":4}}",
+      "from": "a.0",
+      "meter": 4
+    },
+    {
+      "name": "string length",
+      "result": "\"hello\"",
+      "from": "length",
+      "meter": 5
+    },
+    {
+      "name": "string length in UTF-16 units",
+      "result": "\"\\uD83D\\uDE00x\"",
+      "from": "length",
+      "meter": 3
+    },
+    {
+      "name": "nested string length",
+      "result": "{\"s\":\"abc\"}",
+      "from": "s.length",
+      "meter": 3
+    },
+    {
+      "name": "string index then length",
+      "result": "\"abc\"",
+      "from": "0.length",
+      "meter": 1
+    },
+    {
+      "name": "astral string index then length",
+      "result": "\"\\uD83D\\uDE00\"",
+      "from": "0.length",
+      "meter": 1
+    },
+    {
+      "name": "string index is not a number",
+      "result": "\"123\"",
+      "from": "0",
+      "meter": null
+    },
+    {
+      "name": "numeric string",
+      "result": "{\"usd\":\"5\"}",
+      "from": "usd",
+      "meter": null
+    },
+    {
+      "name": "boolean",
+      "result": "{\"usd\":true}",
+      "from": "usd",
+      "meter": null
+    },
+    {
+      "name": "a number has no keys",
+      "result": "5",
+      "from": "x",
+      "meter": null
+    },
+    {
+      "name": "null result",
+      "result": "null",
+      "from": "usd",
+      "meter": null
+    },
+    {
+      "name": "through null",
+      "result": "{\"a\":null}",
+      "from": "a.b",
+      "meter": null
+    },
+    {
+      "name": "fractional",
+      "result": "{\"usd\":2.5}",
+      "from": "usd",
+      "meter": 2.5
+    },
+    {
+      "name": "plain key",
+      "result": "{\"usd\":5}",
+      "from": "usd",
+      "meter": 5
+    }
+  ],
+  "redact": [
+    {
+      "name": "credential in an upstream error",
+      "input": "\"upstream rejected the call: api_key=sk-live-0123456789abcdefghij\"",
+      "output": "upstream rejected the call: [redacted]"
+    },
+    {
+      "name": "anthropic key",
+      "input": "\"key sk-ant-abcdefgh1234 used\"",
+      "output": "key [redacted] used"
+    },
+    {
+      "name": "openai-style key",
+      "input": "\"sk-abcdefghijklmnopqrstuvwxyz\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "short sk- is kept",
+      "input": "\"sk-short\"",
+      "output": "sk-short"
+    },
+    {
+      "name": "stripe-style keys",
+      "input": "\"sk_live_abcdefghij12 rk-test-0123456789 sk_test_short\"",
+      "output": "[redacted] [redacted] sk_test_short"
+    },
+    {
+      "name": "stripe key after an sk- key would match",
+      "input": "\"sk-live-0123456789abcdefghij\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "github tokens",
+      "input": "\"ghp_abcdefghijklmnop1234 and github_pat_abcdefghijklmnopqrstuvwx\"",
+      "output": "[redacted] and [redacted]"
+    },
+    {
+      "name": "aws key id",
+      "input": "\"AKIAABCDEFGHIJKLMNOP\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "aws key id after a non-ASCII letter (ASCII word boundary)",
+      "input": "\"éAKIAABCDEFGHIJKLMNOP\"",
+      "output": "é[redacted]"
+    },
+    {
+      "name": "slack token",
+      "input": "\"xoxb-1234567890-abcdef\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "bearer, any case",
+      "input": "\"Authorization: bearer abcdefghijklmnopqrstuvwxyz\"",
+      "output": "Authorization: [redacted]"
+    },
+    {
+      "name": "bearer after a no-break space (Unicode whitespace)",
+      "input": "\"Bearer abcdefghijklmnopqrstu\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "key=value forms",
+      "input": "\"password=hunter2&PASSWD=x token=abc Secret=s API-KEY=k apikey=q\"",
+      "output": "[redacted]&[redacted] [redacted] [redacted] [redacted] [redacted]"
+    },
+    {
+      "name": "quoted value is not a match",
+      "input": "\"token=\\\"abc\\\"\"",
+      "output": "token=\"abc\""
+    },
+    {
+      "name": "no word boundary",
+      "input": "\"xapi_key=zz\"",
+      "output": "xapi_key=zz"
+    },
+    {
+      "name": "nothing to redact",
+      "input": "\"connection refused\"",
+      "output": "connection refused"
+    },
+    {
+      "name": "PEM private key, multi-line",
+      "input": "\"before -----BEGIN RSA PRIVATE KEY-----\\nMIIEow\\nabc\\n-----END RSA PRIVATE KEY----- after\"",
+      "output": "before [redacted] after"
+    },
+    {
+      "name": "PEM, two keys, lazy",
+      "input": "\"-----BEGIN PRIVATE KEY-----a-----END PRIVATE KEY----- mid -----BEGIN EC PRIVATE KEY-----b-----END EC PRIVATE KEY-----\"",
+      "output": "[redacted] mid [redacted]"
+    },
+    {
+      "name": "credentials in a URL",
+      "input": "\"fetch failed: https://admin:hunter2@db.example.com/x and POSTGRES://u:p@h\"",
+      "output": "fetch failed: [redacted]db.example.com/x and [redacted]h"
+    },
+    {
+      "name": "URL without credentials is kept",
+      "input": "\"see https://example.com/a:b and mailto:x@y\"",
+      "output": "see https://example.com/a:b and mailto:x@y"
+    },
+    {
+      "name": "Slack webhook",
+      "input": "\"posting to https://hooks.slack.com/services/T000/B000/XXXXxxxx_yy-z failed\"",
+      "output": "posting to [redacted] failed"
+    },
+    {
+      "name": "JWT",
+      "input": "\"auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abcDEF123_- rejected\"",
+      "output": "auth [redacted] rejected"
+    },
+    {
+      "name": "Google API key",
+      "input": "\"using AIzaSyA1234567890abcdefghijklmnopqrstuv now; AIzaShort; AIzaSyA1234567890abcdefghijklmnopqrstu (34)\"",
+      "output": "using [redacted] now; AIzaShort; AIzaSyA1234567890abcdefghijklmnopqrstu (34)"
+    },
+    {
+      "name": "HTTP Basic, any case",
+      "input": "\"Authorization: Basic dXNlcjpwYXNz and basic   QWxhZGRpbjpvcGVu\"",
+      "output": "Authorization: [redacted] and [redacted]"
+    },
+    {
+      "name": "JSON secret fields",
+      "input": "\"{\\\"password\\\": \\\"p@ss w0rd\\\", \\\"Client_Secret\\\":\\\"cs\\\", \\\"access-token\\\" : \\\"t\\\", \\\"user\\\": \\\"ada\\\"}\"",
+      "output": "{[redacted], [redacted], [redacted], \"user\": \"ada\"}"
+    },
+    {
+      "name": "colon style",
+      "input": "\"password: hunter2, TOKEN :abc;secret:s3 api-key:  k1\"",
+      "output": "[redacted], [redacted];[redacted] [redacted]"
+    },
+    {
+      "name": "colon after a non-ASCII letter (ASCII word boundary)",
+      "input": "\"étoken: x\"",
+      "output": "é[redacted]"
+    },
+    {
+      "name": "colon with Unicode whitespace",
+      "input": "\"token: abc\"",
+      "output": "[redacted]"
+    },
+    {
+      "name": "order: URL before key=value",
+      "input": "\"https://user:password=x@host/\"",
+      "output": "[redacted]host/"
+    },
+    {
+      "name": "truncated at 200",
+      "input": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+      "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+    },
+    {
+      "name": "exactly 200 is kept",
+      "input": "\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\"",
+      "output": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+    },
+    {
+      "name": "truncation splits a surrogate pair as JS does",
+      "input": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀b\"",
+      "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d…"
+    },
+    {
+      "name": "astral characters count two units",
+      "input": "\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\"",
+      "output": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…"
+    },
+    {
+      "name": "redaction happens before truncation",
+      "input": "\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz password=pppppppppppppppppppppppppppppppppppppppp\"",
+      "output": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz [redacted…"
+    },
+    {
+      "name": "null is empty",
+      "input": "null",
+      "output": ""
+    }
+  ]
+}

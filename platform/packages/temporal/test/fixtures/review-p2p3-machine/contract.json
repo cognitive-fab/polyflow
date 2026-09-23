@@ -1,0 +1,11 @@
+{
+  "lang": "javascript",
+  "stateKeys": [
+    { "name": "phase", "type": "enum: 'idle' | 'working' | 'ready' | 'done'" },
+    { "name": "n", "type": "integer >= 0" }
+  ],
+  "initState": { "phase": "idle", "n": 0 },
+  "actions": { "START": { "dataFields": {} }, "WORK_DONE": { "dataFields": {} }, "FINISH": { "dataFields": {} }, "NOTIFIED": { "dataFields": {} }, "BOOM": { "dataFields": {} } },
+  "terminalKey": "phase",
+  "terminalStates": ["done"]
+}

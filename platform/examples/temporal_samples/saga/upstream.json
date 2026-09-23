@@ -1,0 +1,52 @@
+{
+  "source": "samples-typescript@8907f29",
+  "root": "saga",
+  "files": {
+    "src/activities.ts": {
+      "identical": true
+    },
+    "src/clients/index.ts": {
+      "identical": true
+    },
+    "src/types/accounts-client.ts": {
+      "identical": true
+    },
+    "src/types/banking-client.ts": {
+      "identical": true
+    },
+    "src/types/clients-client.ts": {
+      "identical": true
+    },
+    "src/types/commands.ts": {
+      "identical": true
+    },
+    "src/types/post-office-client.ts": {
+      "identical": true
+    },
+    "src/types/values.ts": {
+      "identical": true
+    },
+    "src/types/workflow-commands.ts": {
+      "identical": true
+    },
+    "src/workflows.mjs": {
+      "identical": false,
+      "upstream": "src/workflows.ts",
+      "why": "the control flow (four steps, compensations in reverse on failure) is the certified machine in ./machine and ./machine-v2; the module re-exports the governed host"
+    },
+    "src/worker.mjs": {
+      "identical": false,
+      "upstream": "src/worker.ts",
+      "why": "the plugin line (machine, sink, key, trust) and, with trust, Worker Versioning with the certificate's build id; the sample's createClients/createActivities are called unchanged through src/orders.mjs"
+    },
+    "src/client.mjs": {
+      "identical": false,
+      "upstream": "src/client.ts",
+      "why": "startGoverned with the sample's OpenAccount command as input; --fail-at reproduces the sample's injected failure"
+    }
+  },
+  "notPorted": [
+    "package.json",
+    "README.md"
+  ]
+}

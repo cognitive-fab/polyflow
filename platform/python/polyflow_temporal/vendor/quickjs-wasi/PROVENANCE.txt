@@ -1,0 +1,12 @@
+quickjs.wasm - QuickJS-NG compiled to WebAssembly (a WASI reactor exposing the
+QuickJS C API), from the npm package quickjs-wasi@3.6.2 (vercel-labs/quickjs-wasi,
+MIT, see LICENSE; QuickJS-NG is MIT).
+
+  npm pack quickjs-wasi@3.6.2
+  sha256(quickjs-wasi-3.6.2.tgz) = f1f4349f19a2d849e33ea0ae9bec2e7062b8839f4eceb17c9051ddbaa2720982
+  sha256(package/quickjs.wasm)   = d4c9375f2b1ca4dc95f72c8aa2982a7a9951ac8011490d79c6582df732b4bbd9
+
+Used by polyflow_temporal/quickjs_engines.py (WasmQuickJS) under wasmtime. Only
+the .wasm is used: none of the package's JavaScript glue. Every import the
+module declares (6 in `env`, 6 in `wasi_snapshot_preview1`) is a stub defined
+in quickjs_engines.py; nothing reaches the host.

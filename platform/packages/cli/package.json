@@ -1,0 +1,24 @@
+{
+  "name": "@cognitive-fab/polyflow-cli",
+  "version": "0.1.1",
+  "description": "The polyflow command: verify, export, keygen \u2014 and, as the platform grows, admit, vet, whatif and report.",
+  "type": "module",
+  "bin": {
+    "polyflow": "bin/polyflow.mjs"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@cognitive-fab/polyflow-kernel": "0.1.0",
+    "@cognitive-fab/polyflow-temporal": "0.1.1",
+    "@cognitive-fab/polyflow-verify": "0.1.0",
+    "@cognitive-fab/polygraph": "^8.3.0"
+  },
+  "license": "BUSL-1.1",
+  "files": [
+    "src",
+    "bin",
+    "LICENSE"
+  ]
+}

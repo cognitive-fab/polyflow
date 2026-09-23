@@ -1,0 +1,74 @@
+{
+  "effects": {
+    "createExpense": {
+      "payloadSchema": {
+        "id": "string"
+      },
+      "onSuccess": {
+        "action": "CREATED"
+      },
+      "onFailure": {
+        "action": "CREATE_FAILED"
+      },
+      "onExhausted": {
+        "action": "CREATE_FAILED",
+        "data": {
+          "reason": "server-unavailable"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 1000,
+        "timeoutMs": 300000
+      }
+    },
+    "request_approval": {
+      "payloadSchema": {
+        "id": "string"
+      },
+      "onSuccess": {
+        "action": "APPROVE"
+      },
+      "onFailure": {
+        "action": "REJECT",
+        "data": {
+          "reason": "approver-unreachable"
+        }
+      },
+      "onExhausted": {
+        "action": "REJECT",
+        "data": {
+          "reason": "approver-unreachable"
+        }
+      },
+      "retry": {
+        "maxAttempts": 1000,
+        "baseMs": 1000,
+        "timeoutMs": 3600000,
+        "heartbeatMs": 30000
+      }
+    },
+    "payment": {
+      "payloadSchema": {
+        "id": "string"
+      },
+      "onSuccess": {
+        "action": "PAID"
+      },
+      "onFailure": {
+        "action": "PAY_FAILED"
+      },
+      "onExhausted": {
+        "action": "PAY_FAILED",
+        "data": {
+          "reason": "payment-declined"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 1000,
+        "timeoutMs": 300000
+      }
+    }
+  }
+}

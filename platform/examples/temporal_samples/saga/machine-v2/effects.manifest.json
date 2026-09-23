@@ -1,0 +1,184 @@
+{
+  "effects": {
+    "createAccount": {
+      "payloadSchema": {
+        "accountId": "string"
+      },
+      "onSuccess": {
+        "action": "ACCOUNT_CREATED"
+      },
+      "onFailure": {
+        "action": "ACCOUNT_FAILED"
+      },
+      "onExhausted": {
+        "action": "ACCOUNT_FAILED",
+        "data": {
+          "reason": "step-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "addAddress": {
+      "payloadSchema": {
+        "accountId": "string",
+        "address": "object"
+      },
+      "onSuccess": {
+        "action": "ADDRESS_ADDED"
+      },
+      "onFailure": {
+        "action": "ADDRESS_FAILED"
+      },
+      "onExhausted": {
+        "action": "ADDRESS_FAILED",
+        "data": {
+          "reason": "step-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "addClient": {
+      "payloadSchema": {
+        "accountId": "string",
+        "clientEmail": "string"
+      },
+      "onSuccess": {
+        "action": "CLIENT_ADDED"
+      },
+      "onFailure": {
+        "action": "CLIENT_FAILED"
+      },
+      "onExhausted": {
+        "action": "CLIENT_FAILED",
+        "data": {
+          "reason": "step-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "addBankAccount": {
+      "payloadSchema": {
+        "accountId": "string",
+        "details": "object"
+      },
+      "onSuccess": {
+        "action": "BANK_ADDED"
+      },
+      "onFailure": {
+        "action": "BANK_FAILED"
+      },
+      "onExhausted": {
+        "action": "BANK_FAILED",
+        "data": {
+          "reason": "step-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 500,
+        "timeoutMs": 8000
+      }
+    },
+    "addKycCheck": {
+      "payloadSchema": {
+        "accountId": "string",
+        "clientEmail": "string"
+      },
+      "onSuccess": {
+        "action": "KYC_PASSED"
+      },
+      "onFailure": {
+        "action": "KYC_FAILED"
+      },
+      "onExhausted": {
+        "action": "KYC_FAILED",
+        "data": {
+          "reason": "step-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "disconnectBankAccounts": {
+      "payloadSchema": {
+        "accountId": "string"
+      },
+      "onSuccess": {
+        "action": "BANK_DISCONNECTED"
+      },
+      "onFailure": {
+        "action": "BANK_DISCONNECT_FAILED"
+      },
+      "onExhausted": {
+        "action": "BANK_DISCONNECT_FAILED",
+        "data": {
+          "reason": "compensation-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 5,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "removeClient": {
+      "payloadSchema": {
+        "accountId": "string"
+      },
+      "onSuccess": {
+        "action": "CLIENT_REMOVED"
+      },
+      "onFailure": {
+        "action": "CLIENT_REMOVE_FAILED"
+      },
+      "onExhausted": {
+        "action": "CLIENT_REMOVE_FAILED",
+        "data": {
+          "reason": "compensation-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 5,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    },
+    "clearPostalAddresses": {
+      "payloadSchema": {
+        "accountId": "string"
+      },
+      "onSuccess": {
+        "action": "ADDRESSES_CLEARED"
+      },
+      "onFailure": {
+        "action": "ADDRESSES_CLEAR_FAILED"
+      },
+      "onExhausted": {
+        "action": "ADDRESSES_CLEAR_FAILED",
+        "data": {
+          "reason": "compensation-failed"
+        }
+      },
+      "retry": {
+        "maxAttempts": 5,
+        "baseMs": 500,
+        "timeoutMs": 3000
+      }
+    }
+  }
+}

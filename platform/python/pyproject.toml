@@ -1,0 +1,38 @@
+[project]
+name = "polyflow-temporal"
+version = "0.1.1"
+description = "Polyflow for Temporal: a worker plugin that records and guards what agents on Temporal are allowed to do."
+requires-python = ">=3.10"
+license = "BUSL-1.1"
+license-files = ["LICENSE"]
+dependencies = ["temporalio>=1.33"]
+
+[project.optional-dependencies]
+# Signing ledger heads (PolyflowPlugin(signing_key=...)). Without it a configured
+# key is refused at construction, never silently left unsigned.
+signing = ["cryptography>=41"]
+# The S2 sample (examples/openai_agents) and its test: the OpenAI Agents SDK
+# integration. It imports the OpenTelemetry contrib, which its own extra omits.
+# It pulls MPL-2.0 packages (certifi, tqdm): they stay confined to this extra,
+# out of the core install and every other extra (licence audit L7).
+openai-agents = ["temporalio[openai-agents,opentelemetry]>=1.33"]
+# G2 from Python (plan P7.4): certified machines in QuickJS. `wasmtime` runs the
+# vendored QuickJS-NG wasm (the sandbox); `quickjs` is the native fallback.
+g2 = ["wasmtime>=30"]
+g2-native = ["quickjs>=1.19"]
+# The LangGraph binding (plan P10; polyflow_langgraph, which imports no temporalio).
+# ToolNode's wrap_tool_call seam and runtime.execution_info: tested on langgraph
+# 1.2 with langgraph-prebuilt 1.1 (earlier 1.x lacks execution_info; P10 LG11).
+# Like openai-agents, it pulls MPL-2.0 code: certifi (via httpx and requests)
+# and orjson (MPL-2.0 AND (Apache-2.0 OR MIT), via langsmith). Confined to this extra (L7b).
+langgraph = ["langgraph>=1.2,<2", "langgraph-prebuilt>=1.1,<2"]
+
+[tool.setuptools]
+packages = ["polyflow_temporal", "polyflow_langgraph"]
+
+[tool.setuptools.package-data]
+polyflow_temporal = ["vendor/quickjs-wasi/LICENSE", "vendor/quickjs-wasi/PROVENANCE.txt"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

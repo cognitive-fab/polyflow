@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "What happens when a workflow schedules an activity",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "What happens when a workflow schedules an activ…",
+        "focus": [
+          "interceptor",
+          "ledger"
+        ],
+        "note": "The outbound interceptor, last in the chain, sees the call, records a proposal and a verdict, and carries the pending events on the activit…"
+      },
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "interceptor",
+          "ledger"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      },
+      {
+        "id": "external",
+        "label": "Outside the platform",
+        "focus": [
+          "temporal",
+          "customer-workflow"
+        ],
+        "note": "Nothing here is trusted: every input from it is a claim until the platform verified it"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "customer-workflow",
+      "type": "backend",
+      "label": "Customer workflow",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "unchanged agent code",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/test/fixtures/agent-workflows.mjs",
+          "label": "an agent-shaped workflow used by the tests"
+        }
+      ]
+    },
+    {
+      "id": "interceptor",
+      "type": "backend",
+      "label": "Workflow interceptor",
+      "pos": [
+        380,
+        167
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "outbound + inbound",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "ledger",
+      "type": "backend",
+      "label": "Ledger chain",
+      "pos": [
+        700,
+        167
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "sha256 over RFC 8785",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/ledger.mjs"
+        }
+      ]
+    },
+    {
+      "id": "temporal",
+      "type": "external",
+      "label": "Temporal server",
+      "pos": [
+        700,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "history, task queues"
+    },
+    {
+      "id": "exporter",
+      "type": "backend",
+      "label": "Exporter",
+      "pos": [
+        1020,
+        286
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "activity interceptor",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs",
+          "label": "exporter()"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "interceptor",
+        "ledger"
+      ],
+      "pad": 20
+    },
+    {
+      "kind": "security-group",
+      "label": "Outside the platform",
+      "wraps": [
+        "temporal",
+        "customer-workflow"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "customer-workflow",
+      "to": "interceptor",
+      "label": "schedules an activity",
+      "labelAt": [
+        295,
+        58
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "interceptor",
+      "to": "ledger",
+      "label": "append events",
+      "labelAt": [
+        663,
+        177
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "from": "interceptor",
+      "to": "temporal",
+      "label": "activity header · event",
+      "labelAt": [
+        615,
+        58
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "temporal",
+      "to": "exporter",
+      "label": "activity task · event",
+      "labelAt": [
+        935,
+        58
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "The outbound interceptor, last in the chain, sees the call, records a proposal and a verdict, and carries the pending events on the activity's own header",
+        "Temporal persists that header in history, so the record exists before any sink does"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "The guard's rules (question two), and the sinks and service (question three)",
+        "Connected but out of scope: Rule kernel, Sealed headers, Verified principals, Plan admission, Sinks, Service API"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "What it guarantees",
+      "items": [
+        "Governance adds one billable Action per execution — the ledger rides on headers the workflow already sends; the only extra command is the closing flush. History bytes are the real cost: about 3.3x on a 10-step loop",
+        "The Temporal history alone rebuilds the ledger — every delta is carried on an activity header, so a sink that was down loses nothing polyflow export cannot recover",
+        "Arguments and results are never recorded, only their digests — the ledger identifies what happened without becoming a second copy of the customer's data; error text is redacted and bounded"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "source": "samples-typescript@8907f29",
+  "root": "expense",
+  "files": {
+    "src/activities.ts": {
+      "identical": true
+    },
+    "src/workflows.mjs": {
+      "identical": false,
+      "upstream": "src/workflows.ts",
+      "why": "the control flow (create, wait for a signal with a timeout, pay) is the certified machine in ./machine; the module re-exports the governed host"
+    },
+    "src/worker.mjs": {
+      "identical": false,
+      "upstream": "src/worker.ts",
+      "why": "the plugin line: sink, signing key, the machine, and trust (or allowUncertified for development)"
+    },
+    "src/server.mjs": {
+      "identical": false,
+      "upstream": "src/server/index.ts",
+      "why": "JavaScript translation of the same endpoints and transitions (the sample's TypeScript enum needs a build step)"
+    },
+    "src/clients/approve.mjs": {
+      "identical": false,
+      "upstream": "src/clients/approve.ts",
+      "why": "startGoverned instead of workflow.start; the approval is a proposal against the open order, by an actor with the human role, instead of a bare signal"
+    },
+    "src/clients/timeout.mjs": {
+      "identical": false,
+      "upstream": "src/clients/timeout.ts",
+      "why": "startGoverned; the approval window is the machine's timer, not a start argument"
+    }
+  },
+  "notPorted": [
+    "package.json",
+    "README.md"
+  ]
+}

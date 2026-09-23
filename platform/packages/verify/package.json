@@ -1,0 +1,24 @@
+{
+  "name": "@cognitive-fab/polyflow-verify",
+  "version": "0.1.0",
+  "description": "Verify a Polyflow ledger: the chain, the signed heads, the closure. Reads what the plugin wrote, or rebuilds it from a Temporal history. The Apache-2.0 half of Polyflow for Temporal.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./constants": "./src/constants.mjs",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@cognitive-fab/polyflow-kernel": "0.1.0",
+    "@temporalio/common": "^1.24.0"
+  },
+  "license": "Apache-2.0",
+  "files": [
+    "src",
+    "LICENSE"
+  ]
+}

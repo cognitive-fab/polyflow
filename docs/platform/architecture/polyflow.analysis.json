@@ -1,0 +1,1454 @@
+{
+  "schema_version": 1,
+  "system": {
+    "name": "Polyflow for Temporal",
+    "purpose": "A governance layer for AI agents on Temporal: it records every effect in a hash-chained ledger, checks rules before each effect, hosts certified state machines that decide what happens next, and gates new versions against the live fleet. It installs as a worker plugin and changes nothing about the customer's workflows.",
+    "domain": "software",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "sources": [
+      {
+        "kind": "code",
+        "ref": "platform/packages/{kernel,temporal,cli,gateway,service}/src",
+        "note": "the TypeScript platform, read at the pinned revision on branch platform/temporal-governance"
+      },
+      {
+        "kind": "code",
+        "ref": "platform/python/{polyflow_temporal,polyflow_langgraph}",
+        "note": "the Python port and the LangGraph binding"
+      },
+      {
+        "kind": "document",
+        "ref": "docs/platform/02-technical-spec.md",
+        "note": "used for intent only; every status below was checked against the code"
+      },
+      {
+        "kind": "document",
+        "ref": "docs/platform/reviews/",
+        "note": "six adversarial reviews and their responses; the open items named here come from them"
+      }
+    ]
+  },
+  "boundaries": [
+    {
+      "id": "isolate",
+      "kind": "process",
+      "label": "Workflow isolate",
+      "claim": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history",
+      "contains": [
+        "interceptor",
+        "guard",
+        "ledger",
+        "policy",
+        "plans",
+        "principals",
+        "sealed",
+        "governed",
+        "machine-host"
+      ],
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/rules.mjs",
+          "label": "the kernel has no dependencies and no I/O"
+        }
+      ]
+    },
+    {
+      "id": "worker",
+      "kind": "process",
+      "label": "Worker process (Node)",
+      "claim": "Runs with the operator's credentials and does I/O; nothing here is replay-constrained, and nothing here can change a verdict",
+      "contains": [
+        "plugin",
+        "exporter",
+        "sinks",
+        "jev-activity",
+        "gate-activities"
+      ],
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs"
+        }
+      ]
+    },
+    {
+      "id": "ci",
+      "kind": "deployment",
+      "label": "CI and operator tooling",
+      "claim": "Runs before deployment and produces signed artefacts; a worker trusts only what it can verify against a public key",
+      "contains": [
+        "cli",
+        "admit",
+        "explore",
+        "polygraph",
+        "certificates",
+        "vet"
+      ],
+      "evidence": [
+        {
+          "path": "platform/packages/cli/src/admit.mjs"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "kind": "network",
+      "label": "Governance service",
+      "claim": "A separate process that holds ledgers from many workers and namespaces; it stores nothing it cannot chain, and signs nothing itself",
+      "contains": [
+        "svc-api",
+        "svc-store",
+        "evidence"
+      ],
+      "evidence": [
+        {
+          "path": "platform/packages/service/src/server.mjs"
+        }
+      ]
+    },
+    {
+      "id": "python",
+      "kind": "process",
+      "label": "Python worker",
+      "claim": "A byte-identical port of the kernel, pinned to TypeScript by generated conformance vectors; it never imports the TypeScript code",
+      "contains": [
+        "py-plugin",
+        "py-kernel",
+        "quickjs",
+        "langgraph"
+      ],
+      "evidence": [
+        {
+          "path": "platform/python/polyflow_temporal/rules.py"
+        }
+      ]
+    },
+    {
+      "id": "external",
+      "kind": "trust",
+      "label": "Outside the platform",
+      "claim": "Nothing here is trusted: every input from it is a claim until the platform verified it",
+      "contains": [
+        "temporal",
+        "customer-workflow",
+        "mcp-agent",
+        "jev",
+        "approver"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "customer-workflow",
+      "name": "Customer workflow",
+      "kind": "workflow",
+      "status": "built",
+      "detail": "unchanged agent code",
+      "responsibility": "Runs the customer's agent loop exactly as written; it never learns that Polyflow exists except through a denial it can read.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/test/fixtures/agent-workflows.mjs",
+          "label": "an agent-shaped workflow used by the tests"
+        }
+      ]
+    },
+    {
+      "id": "temporal",
+      "name": "Temporal server",
+      "kind": "external-service",
+      "status": "built",
+      "detail": "history, task queues",
+      "responsibility": "Persists every workflow task, activity and header; the platform relies on it for durability and replay and adds no store of its own."
+    },
+    {
+      "id": "plugin",
+      "name": "PolyflowPlugin",
+      "kind": "library",
+      "status": "built",
+      "detail": "one line in Worker.create",
+      "responsibility": "Configures a worker: generates the interceptor module, installs the exporter, registers the flush, gate and judge activities, and refuses uncertified machines.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs"
+        }
+      ]
+    },
+    {
+      "id": "interceptor",
+      "name": "Workflow interceptor",
+      "kind": "library",
+      "status": "built",
+      "detail": "outbound + inbound",
+      "responsibility": "Turns every activity, child, signal and Nexus call into proposal, verdict, effect and observation events, and carries the ledger on activity headers.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "name": "Rule kernel",
+      "kind": "library",
+      "status": "built",
+      "detail": "pure, replays exactly",
+      "responsibility": "Decides each candidate effect from the run's own history and the pinned policy, and produces a witness for every denial.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/rules.mjs"
+        },
+        {
+          "path": "platform/packages/temporal/src/guard-governor.mjs"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "name": "Policy admission",
+      "kind": "library",
+      "status": "built",
+      "detail": "digest, reachability",
+      "responsibility": "Parses and admits a policy: every rule known, every guarded kind declared and reachable, routes validated.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/policy.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/admit-policy.mjs"
+        }
+      ]
+    },
+    {
+      "id": "ledger",
+      "name": "Ledger chain",
+      "kind": "library",
+      "status": "built",
+      "detail": "sha256 over RFC 8785",
+      "responsibility": "Appends events into one hash chain per run and verifies a chain offline.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/ledger.mjs"
+        }
+      ]
+    },
+    {
+      "id": "plans",
+      "name": "Plan admission",
+      "kind": "library",
+      "status": "built",
+      "detail": "down-sets, budgeted",
+      "responsibility": "Checks an agent-authored plan in every execution order against the run's remaining authority before any step runs.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/plan.mjs"
+        },
+        {
+          "path": "platform/packages/temporal/src/plans.mjs"
+        }
+      ]
+    },
+    {
+      "id": "principals",
+      "name": "Verified principals",
+      "kind": "library",
+      "status": "built",
+      "detail": "ed25519, action-bound",
+      "responsibility": "Verifies, inside the isolate, that an approval, report or claim was signed by a trusted key for that one action.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/principal.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/ed25519.mjs"
+        }
+      ]
+    },
+    {
+      "id": "sealed",
+      "name": "Sealed headers",
+      "kind": "library",
+      "status": "built",
+      "detail": "ChaCha20-Poly1305",
+      "responsibility": "Seals the ledger delta and the hand-over head before they reach history, because payload codecs skip headers.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/sealed-header.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/aead.mjs"
+        }
+      ]
+    },
+    {
+      "id": "governed",
+      "name": "GovernedWorkflow",
+      "kind": "workflow",
+      "status": "built",
+      "detail": "hosts a machine",
+      "responsibility": "Steps a certified machine, issues its work orders as activities or external orders, answers Updates, and hands over across Continue-as-New without losing anything.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/governed-workflow.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-host",
+      "name": "SAM machine host",
+      "kind": "engine",
+      "status": "built",
+      "detail": "SAM v2 strict",
+      "responsibility": "Fires one action against a snapshot and returns the accepted state, its orders and timers; the same code runs in admission and in QuickJS.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/machine-host.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-dir",
+      "name": "Machine directory",
+      "kind": "config",
+      "status": "built",
+      "detail": "descriptor, contract, mapper",
+      "responsibility": "Holds everything a machine is: descriptor, contract, SAM module, pure effect mapper, manifest, invariants, batteries.",
+      "evidence": [
+        {
+          "path": "platform/examples/customer-brief/polyflow.workflow.json"
+        },
+        {
+          "path": "platform/examples/customer-brief/effects.cjs"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "name": "polyflow CLI",
+      "kind": "cli",
+      "status": "built",
+      "detail": "verify export admit vet",
+      "responsibility": "Runs every offline check an operator or CI needs: verify a ledger, rebuild one from history, admit a policy or a machine, vet a version.",
+      "evidence": [
+        {
+          "path": "platform/packages/cli/src/main.mjs"
+        }
+      ]
+    },
+    {
+      "id": "admit",
+      "name": "Admission",
+      "kind": "engine",
+      "status": "built",
+      "detail": "writes the certificate",
+      "responsibility": "Runs every check a machine's artefacts support and writes a signed certificate naming the exact files only if all of them pass.",
+      "evidence": [
+        {
+          "path": "platform/packages/cli/src/admit.mjs"
+        }
+      ]
+    },
+    {
+      "id": "explore",
+      "name": "Structural explorer",
+      "kind": "library",
+      "status": "built",
+      "detail": "liveness, stop, waits",
+      "responsibility": "Explores the machine over its declared domain and checks liveness, state invariants, stops and that every wait has an exit.",
+      "evidence": [
+        {
+          "path": "platform/packages/kernel/src/explore.mjs"
+        }
+      ]
+    },
+    {
+      "id": "polygraph",
+      "name": "polygraph / polyvers",
+      "kind": "third-party",
+      "status": "built",
+      "detail": "@cognitive-fab/polygraph",
+      "responsibility": "Checks effect invariants over every path (check-effects) and classifies a version change into compatibility lanes with validated migrations (polyvers)."
+    },
+    {
+      "id": "certificates",
+      "name": "Certificates",
+      "kind": "library",
+      "status": "built",
+      "detail": "artefact digests, buildId",
+      "responsibility": "Digests every certified file and local module, signs and verifies certificates, and refuses a machine whose files changed.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/certificates.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/certificate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "vet",
+      "name": "vet",
+      "kind": "library",
+      "status": "built",
+      "detail": "per distinct live state",
+      "responsibility": "Decides per live run whether a new version may take it over: auto-upgrade, migrate, or pin.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/vet.mjs"
+        }
+      ]
+    },
+    {
+      "id": "gate-activities",
+      "name": "Gate workflows",
+      "kind": "workflow",
+      "status": "built",
+      "detail": "vet, apply, wake, policy",
+      "responsibility": "Reads the live fleet, applies vet's decisions to each run, wakes waiting runs after promotion, and vets a policy change against guard states.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/gate-workflow.mjs"
+        },
+        {
+          "path": "platform/packages/temporal/src/gate-activities.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/policy-ramp.mjs"
+        }
+      ]
+    },
+    {
+      "id": "exporter",
+      "name": "Exporter",
+      "kind": "worker",
+      "status": "built",
+      "detail": "activity interceptor",
+      "responsibility": "Reads the ledger delta off an activity's header, verifies it chains from what the sink holds, signs the head it verified, and writes both.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs",
+          "label": "exporter()"
+        }
+      ]
+    },
+    {
+      "id": "sinks",
+      "name": "Sinks",
+      "kind": "file-store",
+      "status": "built",
+      "detail": "file, memory, http",
+      "responsibility": "Holds a run's events idempotently and refuses whole any delta that conflicts or forks.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/sink.mjs"
+        }
+      ]
+    },
+    {
+      "id": "svc-api",
+      "name": "Service API",
+      "kind": "api",
+      "status": "built",
+      "detail": "HTTP, bearer tokens",
+      "responsibility": "Accepts deltas from many workers, verifies signed heads against namespace-bound trust, and serves runs, reports, alerts and metrics.",
+      "evidence": [
+        {
+          "path": "platform/packages/service/src/server.mjs"
+        }
+      ]
+    },
+    {
+      "id": "svc-store",
+      "name": "Service store",
+      "kind": "store",
+      "status": "built",
+      "detail": "SQLite; Postgres deferred",
+      "responsibility": "Stores contiguous chains, holds back out-of-order deltas, and raises conflict, fork and gap alerts.",
+      "evidence": [
+        {
+          "path": "platform/packages/service/src/store.mjs"
+        }
+      ]
+    },
+    {
+      "id": "evidence",
+      "name": "Evidence pack",
+      "kind": "library",
+      "status": "built",
+      "detail": "EU AI Act, ISO 42001, NIST",
+      "responsibility": "Derives compliance evidence from the ledgers a service holds, and says 'nothing in scope' rather than passing an empty period.",
+      "evidence": [
+        {
+          "path": "platform/packages/service/src/evidence.mjs"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "name": "MCP gateway",
+      "kind": "gateway",
+      "status": "built",
+      "detail": "six unchanged tools",
+      "responsibility": "Offers governed runs to any MCP agent as work orders, and turns each report into a polyflow.report Update signed for that one action.",
+      "evidence": [
+        {
+          "path": "platform/packages/gateway/src/temporal-polyflow.mjs"
+        },
+        {
+          "path": "src/mcp.mjs",
+          "label": "the MCP server and argument checks"
+        }
+      ]
+    },
+    {
+      "id": "mcp-agent",
+      "name": "MCP agent",
+      "kind": "external-service",
+      "status": "built",
+      "detail": "Claude Code, OpenWorker...",
+      "responsibility": "Performs the work orders a governed run offers, using whatever tools it has, and reports the outcome."
+    },
+    {
+      "id": "approver",
+      "name": "Approver",
+      "kind": "external-service",
+      "status": "built",
+      "detail": "signs principal tokens",
+      "responsibility": "Answers escalations and performs human orders; with a trust store, presents a token signed for the one action.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/principals.mjs",
+          "label": "signPrincipal, run outside the workflow"
+        }
+      ]
+    },
+    {
+      "id": "jev-activity",
+      "name": "Judge activity",
+      "kind": "worker",
+      "status": "built",
+      "detail": "polyflow.observe",
+      "responsibility": "Sends only the battery's declared source fields, redacted, to Jev, and maps each probability through calibrated bands into a fact or no fact.",
+      "evidence": [
+        {
+          "path": "platform/packages/temporal/src/jev.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/observe.mjs"
+        }
+      ]
+    },
+    {
+      "id": "jev",
+      "name": "Jev (typesafe.ai)",
+      "kind": "model-provider",
+      "status": "built",
+      "detail": "SystemOne noul",
+      "responsibility": "Answers a typed question about a state with a probability; never with text."
+    },
+    {
+      "id": "py-plugin",
+      "name": "Python plugin",
+      "kind": "library",
+      "status": "built",
+      "detail": "G0/G1, OpenAI Agents SDK",
+      "responsibility": "Governs Python workflows with the same ledger and guard; classifies generic MCP tool activities by the tool they carry.",
+      "evidence": [
+        {
+          "path": "platform/python/polyflow_temporal/plugin.py"
+        },
+        {
+          "path": "platform/python/examples/openai_agents/policy.json",
+          "label": "routes for the Agents SDK"
+        }
+      ]
+    },
+    {
+      "id": "py-kernel",
+      "name": "Python kernel port",
+      "kind": "library",
+      "status": "built",
+      "detail": "byte-identical",
+      "responsibility": "Reproduces canonical JSON, the chain, the guard and redaction exactly as TypeScript does, proven by generated vectors.",
+      "evidence": [
+        {
+          "path": "platform/python/polyflow_temporal/rules.py"
+        },
+        {
+          "path": "platform/conformance/generate-guard.mjs",
+          "label": "vectors are generated from the TS kernel"
+        }
+      ]
+    },
+    {
+      "id": "quickjs",
+      "name": "QuickJS machine host",
+      "kind": "sandbox",
+      "status": "partial",
+      "detail": "wasm, no host access",
+      "responsibility": "Runs the TypeScript machine host unchanged inside QuickJS-in-WebAssembly so Python can step a certified machine; a Python GovernedWorkflow is not built.",
+      "evidence": [
+        {
+          "path": "platform/python/polyflow_temporal/machine_host.py"
+        },
+        {
+          "path": "platform/python/polyflow_temporal/quickjs_engines.py"
+        }
+      ]
+    },
+    {
+      "id": "langgraph",
+      "name": "LangGraph binding",
+      "kind": "library",
+      "status": "built",
+      "detail": "second engine, G0/G1",
+      "responsibility": "Governs a LangGraph agent's tool calls with the same ledger and guard, keeping the chain in a per-thread record beside the sink.",
+      "evidence": [
+        {
+          "path": "platform/python/polyflow_langgraph/binding.py"
+        },
+        {
+          "path": "platform/python/polyflow_langgraph/store.py"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "wf-schedules",
+      "from": "customer-workflow",
+      "to": "interceptor",
+      "mechanism": "in-process call",
+      "summary": "schedules an activity",
+      "what_crosses": "The activity type and its arguments, exactly as the workflow wrote them; the interceptor is last, so it sees the final input.",
+      "crosses": "external",
+      "synchronous": true
+    },
+    {
+      "id": "int-guard",
+      "from": "interceptor",
+      "to": "guard",
+      "mechanism": "in-process call",
+      "summary": "decide this effect",
+      "what_crosses": "A candidate: kind, class, labels, target and an arguments digest. Never the arguments themselves."
+    },
+    {
+      "id": "guard-policy",
+      "from": "guard",
+      "to": "policy",
+      "mechanism": "in-process call",
+      "summary": "the admitted policy",
+      "what_crosses": "The policy with its digest and kinds; classification of a target, routed by an argument when the policy says so."
+    },
+    {
+      "id": "int-ledger",
+      "from": "interceptor",
+      "to": "ledger",
+      "mechanism": "in-process call",
+      "summary": "append events",
+      "what_crosses": "proposal, verdict, effect and observation bodies; digests of arguments and results, redacted error text."
+    },
+    {
+      "id": "int-sealed",
+      "from": "interceptor",
+      "to": "sealed",
+      "mechanism": "in-process call",
+      "summary": "seal the header",
+      "what_crosses": "The pending delta and the hand-over head, sealed under the worker's data key with a keyed synthetic nonce."
+    },
+    {
+      "id": "int-temporal",
+      "from": "interceptor",
+      "to": "temporal",
+      "mechanism": "event",
+      "summary": "activity header",
+      "what_crosses": "The ledger delta on the ScheduleActivity command's header; the hand-over head on Continue-as-New. Persisted in history.",
+      "crosses": "isolate",
+      "synchronous": false
+    },
+    {
+      "id": "int-principals",
+      "from": "interceptor",
+      "to": "principals",
+      "mechanism": "in-process call",
+      "summary": "verify the approver",
+      "what_crosses": "A signed token and the expected action; back, a verified id and roles, or the reason it is refused."
+    },
+    {
+      "id": "int-plans",
+      "from": "customer-workflow",
+      "to": "plans",
+      "mechanism": "in-process call",
+      "summary": "proposePlan",
+      "what_crosses": "A plan of steps with dependencies and declared spend; back, admitted with escalations, refused with a witness order, or bounded.",
+      "crosses": "external"
+    },
+    {
+      "id": "plans-guard",
+      "from": "plans",
+      "to": "guard",
+      "mechanism": "in-process call",
+      "summary": "every order",
+      "what_crosses": "The run's current guard state, stepped through each down-set of the plan."
+    },
+    {
+      "id": "temporal-exporter",
+      "from": "temporal",
+      "to": "exporter",
+      "mechanism": "event",
+      "summary": "activity task",
+      "what_crosses": "The activity task with its headers; the exporter runs before the customer's activity code.",
+      "crosses": "external"
+    },
+    {
+      "id": "exp-sinks",
+      "from": "exporter",
+      "to": "sinks",
+      "mechanism": "in-process call",
+      "summary": "write, signed",
+      "what_crosses": "The verified delta and a head signed by the deployment key; back, what was written, skipped, or refused as a conflict."
+    },
+    {
+      "id": "exp-svc",
+      "from": "exporter",
+      "to": "svc-api",
+      "mechanism": "https",
+      "summary": "POST /v1/ledger",
+      "what_crosses": "The delta and signed head with a bearer token; back 200, 202 held back, 409 conflict or 422 refused.",
+      "crosses": "worker",
+      "synchronous": true
+    },
+    {
+      "id": "svc-store",
+      "from": "svc-api",
+      "to": "svc-store",
+      "mechanism": "database",
+      "summary": "chain it",
+      "what_crosses": "Events keyed by run and seq, held-back deltas with quotas, alerts, registered certificates."
+    },
+    {
+      "id": "svc-evidence",
+      "from": "svc-api",
+      "to": "evidence",
+      "mechanism": "in-process call",
+      "summary": "evidence pack",
+      "what_crosses": "A namespace and period; back, counts and a framework mapping with holds true, false or null."
+    },
+    {
+      "id": "cli-sinks",
+      "from": "cli",
+      "to": "sinks",
+      "mechanism": "file",
+      "summary": "verify a ledger",
+      "what_crosses": "A run's events and signed heads read from disk; a trust store of public keys.",
+      "crosses": "ci"
+    },
+    {
+      "id": "cli-temporal",
+      "from": "cli",
+      "to": "temporal",
+      "mechanism": "file",
+      "summary": "export from history",
+      "what_crosses": "A history export; the ledger is rebuilt from the activity headers alone, unsigned.",
+      "crosses": "ci"
+    },
+    {
+      "id": "cli-admit",
+      "from": "cli",
+      "to": "admit",
+      "mechanism": "in-process call",
+      "summary": "polyflow admit",
+      "what_crosses": "A machine directory and a signing key; back, a verdict per check and the certificate."
+    },
+    {
+      "id": "admit-explore",
+      "from": "admit",
+      "to": "explore",
+      "mechanism": "in-process call",
+      "summary": "structural checks",
+      "what_crosses": "The host and contract; back, liveness, stop, invariant and wait findings over every reachable state."
+    },
+    {
+      "id": "admit-host",
+      "from": "admit",
+      "to": "machine-host",
+      "mechanism": "in-process call",
+      "summary": "the same host",
+      "what_crosses": "The machine module, contract, mapper and manifest, loaded fresh; the explorer steps this host.",
+      "crosses": "ci"
+    },
+    {
+      "id": "admit-polygraph",
+      "from": "admit",
+      "to": "polygraph",
+      "mechanism": "in-process call",
+      "summary": "check-effects",
+      "what_crosses": "File paths of the artefacts and the depth and path limits; back, violations of effect invariants with a witness path."
+    },
+    {
+      "id": "admit-cert",
+      "from": "admit",
+      "to": "certificates",
+      "mechanism": "in-process call",
+      "summary": "seal and sign",
+      "what_crosses": "Artefact digests, guarantees, checks, domains and toolchain; back, a signed certificate with a buildId."
+    },
+    {
+      "id": "admit-dir",
+      "from": "admit",
+      "to": "machine-dir",
+      "mechanism": "file",
+      "summary": "reads every artefact",
+      "what_crosses": "The seven files, their literal-path local modules, and the certificate written back beside them."
+    },
+    {
+      "id": "plugin-cert",
+      "from": "plugin",
+      "to": "certificates",
+      "mechanism": "in-process call",
+      "summary": "refuse changed files",
+      "what_crosses": "The machine directory and the trust store; back, the certificate, or the name of the file that differs.",
+      "crosses": "worker"
+    },
+    {
+      "id": "plugin-dir",
+      "from": "plugin",
+      "to": "machine-dir",
+      "mechanism": "file",
+      "summary": "bundles the machine",
+      "what_crosses": "The module, contract, mapper and manifest, as string-literal requires in a generated registry the bundler resolves.",
+      "crosses": "worker"
+    },
+    {
+      "id": "plugin-int",
+      "from": "plugin",
+      "to": "interceptor",
+      "mechanism": "file",
+      "summary": "generated module",
+      "what_crosses": "The frozen configuration (policy digest, mode, trust) as a generated module; header keys arrive through the bundler, never on disk.",
+      "crosses": "worker"
+    },
+    {
+      "id": "gov-host",
+      "from": "governed",
+      "to": "machine-host",
+      "mechanism": "in-process call",
+      "summary": "step the machine",
+      "what_crosses": "A snapshot, an action and its data; back, the accepted state, the orders and timers it emits, or a rejection with its reason."
+    },
+    {
+      "id": "gov-int",
+      "from": "governed",
+      "to": "interceptor",
+      "mechanism": "in-process call",
+      "summary": "orders as activities",
+      "what_crosses": "Each order as an activity call (or an external order through the guard), so G2 runs are guarded and recorded like any other."
+    },
+    {
+      "id": "gov-principals",
+      "from": "governed",
+      "to": "principals",
+      "mechanism": "in-process call",
+      "summary": "who reports, claims",
+      "what_crosses": "The actor token on report, claim, propose, release and migrate, bound to the order, attempt and outcome."
+    },
+    {
+      "id": "gateway-gov",
+      "from": "gateway",
+      "to": "governed",
+      "mechanism": "grpc",
+      "summary": "start, report, claim",
+      "what_crosses": "polyflow.report and polyflow.claim Updates and polyflow.state queries, through the Temporal client; only for instance ids of machines the gateway offers.",
+      "crosses": "worker",
+      "synchronous": true
+    },
+    {
+      "id": "agent-gateway",
+      "from": "mcp-agent",
+      "to": "gateway",
+      "mechanism": "stdio",
+      "summary": "six MCP tools",
+      "what_crosses": "workflow_start, workflow_state, workflow_report, workflow_claim and the rest; arguments are type- and size-checked before anything reaches Temporal.",
+      "crosses": "external",
+      "synchronous": true
+    },
+    {
+      "id": "approver-int",
+      "from": "approver",
+      "to": "interceptor",
+      "mechanism": "grpc",
+      "summary": "polyflow.approve",
+      "what_crosses": "An approval id, a decision, the arguments digest the approver saw, and a token signed for exactly that decision.",
+      "crosses": "external",
+      "synchronous": true
+    },
+    {
+      "id": "gov-jev",
+      "from": "governed",
+      "to": "jev-activity",
+      "mechanism": "in-process call",
+      "summary": "order a judgement",
+      "what_crosses": "An order whose tool is polyflow.observe: the battery name and the machine state.",
+      "crosses": "isolate"
+    },
+    {
+      "id": "jev-jev",
+      "from": "jev-activity",
+      "to": "jev",
+      "mechanism": "https",
+      "summary": "ask the battery",
+      "what_crosses": "Only the declared source fields, redacted, and the questions; back, a probability per question, never text.",
+      "crosses": "worker",
+      "synchronous": true
+    },
+    {
+      "id": "gate-vet",
+      "from": "gate-activities",
+      "to": "vet",
+      "mechanism": "in-process call",
+      "crosses": "ci",
+      "summary": "vet the fleet",
+      "what_crosses": "The old and new directories and every distinct live state with its open order kinds; back, a decision per run."
+    },
+    {
+      "id": "vet-polygraph",
+      "from": "vet",
+      "to": "polygraph",
+      "mechanism": "spawn",
+      "summary": "polyvers check",
+      "what_crosses": "A one-state corpus per distinct state, as a child process with an argument array; back, lanes, gates and a verdict."
+    },
+    {
+      "id": "vet-cert",
+      "from": "vet",
+      "to": "certificates",
+      "mechanism": "in-process call",
+      "summary": "new version admitted?",
+      "what_crosses": "The new directory's certificate against its files and the trust store; an unadmitted version is refused before vetting."
+    },
+    {
+      "id": "gate-gov",
+      "from": "gate-activities",
+      "to": "governed",
+      "mechanism": "grpc",
+      "summary": "migrate, wake",
+      "what_crosses": "polyflow.migrate with the from-digest, the target and a signed operator token; polyflow.wake after promotion; polyflow.guard queries for the policy ramp.",
+      "crosses": "worker",
+      "synchronous": true
+    },
+    {
+      "id": "gate-temporal",
+      "from": "gate-activities",
+      "to": "temporal",
+      "mechanism": "grpc",
+      "summary": "list the fleet",
+      "what_crosses": "A visibility query for running governed workflows, filtered to the version being replaced.",
+      "crosses": "worker"
+    },
+    {
+      "id": "gov-temporal",
+      "from": "governed",
+      "to": "temporal",
+      "mechanism": "event",
+      "summary": "Continue-as-New",
+      "what_crosses": "The carried state, open orders, timers and claims, computed after the closing flush; AUTO_UPGRADE when the gate said so and the new version is current.",
+      "crosses": "isolate"
+    },
+    {
+      "id": "py-kernel-rel",
+      "from": "py-plugin",
+      "to": "py-kernel",
+      "mechanism": "in-process call",
+      "summary": "same guard, same chain",
+      "what_crosses": "Candidates and events exactly as the TypeScript interceptor produces them; the digests must match byte for byte."
+    },
+    {
+      "id": "py-temporal",
+      "from": "py-plugin",
+      "to": "temporal",
+      "mechanism": "event",
+      "summary": "activity header",
+      "what_crosses": "The same polyflow-ledger header, sealed the same way; a Python ledger verifies under the TypeScript CLI.",
+      "crosses": "python"
+    },
+    {
+      "id": "quickjs-host",
+      "from": "quickjs",
+      "to": "machine-host",
+      "mechanism": "in-process call",
+      "summary": "runs the TS host unchanged",
+      "what_crosses": "The kernel's machine-host.mjs, sam-pattern and the machine, bundled into one script and evaluated under an instruction budget; the step semantics are the TypeScript code itself.",
+      "crosses": "python"
+    },
+    {
+      "id": "lg-kernel",
+      "from": "langgraph",
+      "to": "py-kernel",
+      "mechanism": "in-process call",
+      "summary": "same guard, same chain",
+      "what_crosses": "Each tool call as a candidate; each decision as ledger events; the per-thread guard state."
+    },
+    {
+      "id": "lg-sinks",
+      "from": "langgraph",
+      "to": "sinks",
+      "mechanism": "file",
+      "summary": "same sink layout",
+      "what_crosses": "Chains named by thread, linked by continues across closes; a thread record beside them.",
+      "crosses": "python"
+    }
+  ],
+  "facts": [
+    {
+      "id": "not-a-proof",
+      "kind": "doctrine",
+      "claim": "Every check is a consistency check, not a proof",
+      "because": "admission is exhaustive only over the finite domains a contract declares, and the guard decides only what its rules express"
+    },
+    {
+      "id": "one-action",
+      "kind": "guarantee",
+      "claim": "Governance adds one billable Action per execution",
+      "because": "the ledger rides on headers the workflow already sends; the only extra command is the closing flush. History bytes are the real cost: about 3.3x on a 10-step loop"
+    },
+    {
+      "id": "replay-exact",
+      "kind": "guarantee",
+      "claim": "A verdict is the same on every replay",
+      "because": "the guard and the ledger are pure JavaScript with no I/O, and the isolate supplies the clock"
+    },
+    {
+      "id": "witness",
+      "kind": "doctrine",
+      "claim": "A denial carries a witness the agent can re-plan from",
+      "because": "the failure names the rules that fired, what would fix each, and the kinds allowed right now; an agent that reads it stops retrying the same call"
+    },
+    {
+      "id": "no-bodies",
+      "kind": "guarantee",
+      "claim": "Arguments and results are never recorded, only their digests",
+      "because": "the ledger identifies what happened without becoming a second copy of the customer's data; error text is redacted and bounded"
+    },
+    {
+      "id": "history-rebuilds",
+      "kind": "guarantee",
+      "claim": "The Temporal history alone rebuilds the ledger",
+      "because": "every delta is carried on an activity header, so a sink that was down loses nothing polyflow export cannot recover"
+    },
+    {
+      "id": "exporter-signs-own",
+      "kind": "guarantee",
+      "claim": "The exporter signs only heads it verified itself",
+      "because": "a header can claim anything; a delta for another run, another workflow, or a chain start that is not the activity's own run is refused and never signed"
+    },
+    {
+      "id": "cert-is-version",
+      "kind": "doctrine",
+      "claim": "The certificate is the version",
+      "because": "the buildId is a digest of what was certified, and under Worker Versioning the worker runs under that build id or not at all"
+    },
+    {
+      "id": "no-cross-replay",
+      "kind": "doctrine",
+      "claim": "A run never replays across versions",
+      "because": "it hands its state to a new execution, migrated by code polyvers validated over that very state; the old and new code never share a history"
+    },
+    {
+      "id": "fail-closed",
+      "kind": "doctrine",
+      "claim": "Undeclared is denied",
+      "because": "at guard level an activity the policy does not name is denied unless the policy says otherwise; a routed tool the policy does not name is always denied"
+    },
+    {
+      "id": "action-bound",
+      "kind": "guarantee",
+      "claim": "A principal token authorises one action",
+      "because": "Temporal keeps Update arguments in history, so a token that only proved identity could be lifted and reused; binding the action makes a lifted token worthless"
+    },
+    {
+      "id": "abstain",
+      "kind": "doctrine",
+      "claim": "A judge may answer with no fact at all",
+      "because": "a probability between the calibrated bands is abstention, never a default false; the machine's contract decides what unknown does, typically a person"
+    },
+    {
+      "id": "open-dst1r",
+      "kind": "risk",
+      "claim": "Open: replay-unstable event times can fork the exported chain at a hand-over (DST1-R)",
+      "because": "the event times of a run's first activation can differ between two replays of the same history; found by the P9 review, kept visible as a todo test",
+      "evidence": [
+        {
+          "path": "docs/platform/reviews/P9-review.md",
+          "label": "Response, DST1-R"
+        }
+      ]
+    },
+    {
+      "id": "sealed-why",
+      "kind": "constraint",
+      "claim": "Payload codecs do not run on headers",
+      "because": "the SDK visits payloads with skipHeaders, so without a worker-held data key the ledger sits in history in plaintext"
+    },
+    {
+      "id": "python-no-g2",
+      "kind": "constraint",
+      "claim": "Python has no GovernedWorkflow yet",
+      "because": "the QuickJS host proves the sandbox and the step semantics; mapping orders to activities and timers in a Python workflow is not built"
+    },
+    {
+      "id": "langgraph-no-replay",
+      "kind": "tradeoff",
+      "claim": "LangGraph gives no deterministic replay",
+      "because": "tools can run twice and a thread has no natural end; the binding dedupes on the effect's key and the user closes the thread"
+    }
+  ],
+  "glossary": [
+    {
+      "term": "effect",
+      "definition": "Anything a workflow does that reaches the outside world: an activity, a child workflow, a signal to another workflow, a Nexus operation. The unit the guard decides and the ledger records."
+    },
+    {
+      "term": "kind",
+      "definition": "The name a policy gives to a class of effects (post, approval, refund), so rules talk about kinds rather than activity names."
+    },
+    {
+      "term": "witness",
+      "definition": "What a denial carries: the rules that fired, how to satisfy each, and the kinds allowed right now."
+    },
+    {
+      "term": "ledger",
+      "definition": "One hash chain per run of proposal, verdict, effect and observation events, signed at its head by the worker's deployment key.",
+      "also": [
+        "chain",
+        "record"
+      ]
+    },
+    {
+      "term": "delta",
+      "definition": "The events appended since the last activity was scheduled, carried on that activity's header."
+    },
+    {
+      "term": "sink",
+      "definition": "Where the exporter writes ledgers: a directory, memory, or the governance service."
+    },
+    {
+      "term": "machine",
+      "definition": "A SAM v2 state machine plus its contract, effect mapper and manifest: the certified artefact a governed run hosts.",
+      "also": [
+        "SAM machine"
+      ]
+    },
+    {
+      "term": "work order",
+      "definition": "What a machine step emits: an effect of a declared kind that a worker activity, an agent or a person performs and reports.",
+      "also": [
+        "order"
+      ]
+    },
+    {
+      "term": "admission",
+      "definition": "The CI step that checks a machine or a policy exhaustively over its declared domain and writes a signed certificate."
+    },
+    {
+      "term": "certificate",
+      "definition": "A signed record of every file, module, guarantee and check of an admitted machine; its buildId is the version."
+    },
+    {
+      "term": "escalation",
+      "definition": "A guard outcome that parks a call, frozen, until a person with the right role decides it."
+    },
+    {
+      "term": "principal",
+      "definition": "Whoever approves, reports or claims; verified when they present a token signed by a trusted key for that one action."
+    },
+    {
+      "term": "Continue-as-New",
+      "definition": "Temporal's way to start a fresh execution with a carried state, keeping history bounded; the hand-over point for versions.",
+      "also": [
+        "CaN",
+        "hand-over"
+      ]
+    },
+    {
+      "term": "Worker Versioning",
+      "definition": "Temporal's deployment versions: a run is pinned to the version that started it unless it opts to auto-upgrade."
+    },
+    {
+      "term": "polyvers",
+      "definition": "The polygraph tool that classifies a machine change into compatibility lanes and validates migrations over live states."
+    },
+    {
+      "term": "battery",
+      "definition": "A declared set of typed questions for the judge, each with calibrated bands that turn a probability into a fact, or into none."
+    },
+    {
+      "term": "Jev",
+      "definition": "typesafe.ai's SystemOne judge: answers a typed question about a state with a probability, never text."
+    },
+    {
+      "term": "conformance vectors",
+      "definition": "JSON cases generated from the TypeScript kernel that the Python port must reproduce byte for byte."
+    },
+    {
+      "term": "QuickJS",
+      "definition": "A small JavaScript engine; compiled to WebAssembly it runs the TypeScript machine host inside Python with no host access."
+    },
+    {
+      "term": "MCP",
+      "definition": "Model Context Protocol: how an agent discovers and calls tools; the gateway exposes governed runs as MCP tools."
+    },
+    {
+      "term": "isolate",
+      "definition": "The sandbox the Temporal TypeScript SDK runs workflow code in: no I/O, a deterministic clock, replayable."
+    }
+  ],
+  "questions": [
+    {
+      "id": "record",
+      "title": "What happens when a workflow schedules an activity",
+      "ask": "A customer's unchanged workflow calls an activity. Where does Polyflow enter, and what gets recorded?",
+      "context": "The whole adoption story rests on one claim: install the plugin and nothing about the workflow changes. That is only credible if the interception point is one Temporal already offers, and if the record it produces survives without any new infrastructure.",
+      "answer": "The outbound interceptor, last in the chain, sees the call, records a proposal and a verdict, and carries the pending events on the activity's own header. Temporal persists that header in history, so the record exists before any sink does.",
+      "involves": [
+        "customer-workflow",
+        "interceptor",
+        "ledger",
+        "temporal",
+        "exporter"
+      ],
+      "highlight": [
+        "interceptor",
+        "ledger"
+      ],
+      "facts": [
+        "one-action",
+        "history-rebuilds",
+        "no-bodies"
+      ],
+      "omits": "The guard's rules (question two), and the sinks and service (question three).",
+      "narrative": "Start at the customer's workflow: it calls an activity exactly as it did before the plugin. The Temporal SDK passes that call through every registered outbound interceptor, and Polyflow's is registered last on purpose, so it sees the final activity type and arguments after every other plugin has had its say.\n\nInside the interceptor two things happen in the same synchronous step. First, the rule kernel classifies the call and decides it (at G0 every decision is allow). Second, the ledger appends a proposal and a verdict, and then an effect event carrying an idempotency key. None of these events holds the arguments, only a digest of them.\n\nThen the interceptor drains everything the ledger has appended since the last carrier and attaches it to the activity's header. The command goes to the Temporal server, which writes the header into the workflow's history. From this moment the record is durable: even if every sink is down, the history holds it, and the CLI can rebuild the ledger from a history export.\n\nWhen the activity task reaches a worker, the exporter reads the header before the customer's activity code runs, which is the next question. When the activity completes, an observation event records ok or a redacted error, and rides on the next carrier."
+    },
+    {
+      "id": "guard",
+      "title": "How an effect is decided at G1",
+      "ask": "With a policy configured, what decides whether a call may proceed, what does a denial look like, and how does a person get involved?",
+      "context": "Rules that live in ad-hoc guards inside activities are invisible to audit and differ per team. G1 moves them to one place that replays exactly, and it has to give the agent something better than an error string when it says no.",
+      "answer": "The rule kernel decides from the run's own history and the admitted policy. A denial fails the call before it is scheduled with a witness; an escalation parks a frozen copy of the call until a person with the role answers, through an Update the interceptor installs.",
+      "involves": [
+        "customer-workflow",
+        "interceptor",
+        "guard",
+        "policy",
+        "approver"
+      ],
+      "highlight": [
+        "guard",
+        "policy"
+      ],
+      "facts": [
+        "witness",
+        "replay-exact",
+        "fail-closed"
+      ],
+      "omits": "Plan admission and verified principals, which have their own questions; the ledger, which records the outcome but never influences it.",
+      "narrative": "The policy is admitted before it is ever used: every rule must be of a known type, every guarded kind must be declared by some effect, and no rule may make a kind unreachable. What the worker enforces is the admitted, digested form, and at guard level an omitted unlabelled setting is enforced as deny.\n\nWhen the interceptor sees a call it builds a candidate: the kind and class the policy assigns to that activity (or to the tool the call carries, when a route says so), its labels, and a digest of the arguments. The guard evaluates every rule against the run's state: what has been scheduled, what succeeded, what was read, how much was spent. Every failing rule is reported, not just the first.\n\nA deny becomes a PolyflowDenied failure thrown to the workflow before the command is emitted. Its details carry the witness: each rule and the fix that would satisfy it, plus the kinds that are allowed right now. An agent that reads it re-plans instead of retrying.\n\nAn escalate parks the call. The interceptor freezes a copy of the arguments, records an escalated verdict, and waits, in workflow time, for polyflow.approve. The approver reads polyflow.pending, sees exactly those arguments, and answers. With a trust store, the answer is a token signed for that one approval, verified by the principals kernel inside the isolate. No answer inside the policy's timeout is a denial.\n\nAn agent that wants to do several things may propose a plan. Plan admission steps the guard from the run's current state through every order the plan could execute, so a plan is admitted only if no order breaks a rule, and each step still crosses the guard when it runs."
+    },
+    {
+      "id": "export",
+      "title": "How the ledger reaches a verifier",
+      "ask": "Once a delta is in history, how does it become a signed record someone else can verify, and what stops a worker from signing a forgery?",
+      "context": "A record nobody vouches for says only what happened. The signing point has to be somewhere with a key, which the isolate is not, and it must refuse to sign anything it did not check itself.",
+      "answer": "The exporter, an activity-side interceptor on the worker, reads the delta off the header, verifies it chains from what the sink already holds, signs the head it verified with the deployment key, and writes both. The CLI or the service verifies the chain, the signatures and the closure offline.",
+      "involves": [
+        "temporal",
+        "exporter",
+        "sinks",
+        "svc-api",
+        "svc-store",
+        "cli",
+        "evidence"
+      ],
+      "highlight": [
+        "exporter",
+        "sinks"
+      ],
+      "facts": [
+        "exporter-signs-own",
+        "history-rebuilds"
+      ],
+      "omits": "Sealing, which is question eight; the workflow side, which is question one.",
+      "narrative": "An activity task arrives at a worker carrying the ledger delta in its header. Polyflow's activity interceptor runs before the customer's activity code. It opens the header (and requires a seal when the worker has a data key), then checks four things: the delta names this activity's own workflow and namespace; if it starts a chain it names this activity's own run; its events chain internally; and it continues from the head the sink already holds.\n\nOnly then does it sign, and it signs the head it computed, never a head the payload claims. A delta that skips ahead is written unsigned so the gap shows, and reported. A delta that conflicts with what the sink holds is refused whole and reported through onConflict: two different events at one seq of one run is what tampering looks like.\n\nThe sink can be a directory, memory, or the governance service over HTTPS. The service holds back an out-of-order delta until its predecessor arrives, refuses forks, verifies signed heads against a trust store bound to namespaces, and requires a signed head on the first delta of any run where it trusts a key, so a write token alone cannot invent a run.\n\nVerification is offline: polyflow verify reads a run's file, checks the chain, checks that a trusted key signed a head anchored on the last event, and checks the closure. The service does the same per run and derives the evidence pack from what it holds."
+    },
+    {
+      "id": "governed",
+      "title": "What a governed run is",
+      "ask": "At G2 the agent no longer drives the sequence. What does, who performs the work, and how does an agent outside the worker take part?",
+      "context": "G1 constrains an agent's choices; G2 removes the choice of what comes next altogether and leaves the agent only how. That is the level where a rewrite is asked of the customer, so it has to be clear what is gained.",
+      "answer": "GovernedWorkflow steps a certified SAM machine. Each accepted step emits work orders and timers; orders run as worker activities or wait for an external performer through the gateway, and every completion is a proposal the machine accepts or observably rejects.",
+      "involves": [
+        "governed",
+        "machine-host",
+        "machine-dir",
+        "interceptor",
+        "gateway",
+        "mcp-agent"
+      ],
+      "highlight": [
+        "governed",
+        "machine-host"
+      ],
+      "facts": [
+        "replay-exact",
+        "not-a-proof"
+      ],
+      "omits": "Admission and certificates, which are question five; the judge, which is question nine.",
+      "narrative": "A machine directory holds a SAM v2 module, its contract, a pure effect mapper and a manifest. The plugin bundles the module into the worker and registers it by name; the customer's workflows module re-exports GovernedWorkflow, and that is the only workflow code involved.\n\nA run starts from an input. The workflow id is derived from it by the descriptor's key template, so starting the same job twice attaches to the same run instead of running it twice. The start step fires the input action; the host fires it against the initial snapshot and returns the accepted state plus the orders and timers the mapper emits. Orders get ids derived from the run, the seq and the kind, so a retry re-issues the same order.\n\nIn worker mode each order is an activity, scheduled through the same interceptor as any other effect, so a governed run is guarded and recorded like a G1 run. Its completion becomes the action the manifest wires (onSuccess, onFailure, onExhausted), stepped as a proposal the machine may accept or reject.\n\nIn external mode nothing is scheduled: the order waits. The MCP gateway offers the run to an agent as work orders through six unchanged tools. The agent reports through polyflow.report, which the workflow validates against the open order, its holder and its role before anything is stepped. A person's order is reported only by someone holding the human role.\n\nUpdates, timers and hand-overs all go through the same step function, so the journal is the complete story of the run: every accepted, rejected and unhandled step with its pre and post state."
+    },
+    {
+      "id": "admission",
+      "title": "How a machine is certified",
+      "ask": "What does polyflow admit check, what does the certificate cover, and how does a worker refuse what was not admitted?",
+      "context": "G3 is the claim that nothing runs that was not checked. It needs the checks to be exhaustive over something, the certificate to cover the code that actually runs, and the worker to enforce it without trusting the person who deployed it.",
+      "answer": "Admission explores the machine over its contract's whole declared domain: effect invariants over every path, state invariants in every state, liveness, stops, waits and batteries. The certificate digests every file and local module and is signed; a worker with a trust store refuses any machine whose files differ by a byte.",
+      "involves": [
+        "cli",
+        "admit",
+        "explore",
+        "polygraph",
+        "certificates",
+        "machine-dir"
+      ],
+      "highlight": [
+        "admit",
+        "certificates"
+      ],
+      "facts": [
+        "not-a-proof",
+        "cert-is-version"
+      ],
+      "omits": "The runtime host that steps the same machine, and the worker's refusal, which is question four's plugin.",
+      "narrative": "Admission begins by refusing to guess: the machine's own action domains must cover every combination the contract declares, or the certificate would name a domain nobody explored. Then polygraph's check-effects walks every path over that domain and checks the effect invariants: what may never be emitted, in what order, how many times.\n\nThe structural explorer walks the same machine through the same host that will run it: can every state finish; do the state invariants hold everywhere; does every step that hands work to a person arm a timer; can a person stop the run from every state not declared unstoppable; does every wait have an exit somebody actually sends, for every outcome of every order open there. That last check found a real gap in the platform's own example.\n\nBatteries are parsed, their calibration checked, and every fact a manifest reads must be one some battery produces. A policy.json, if present, is admitted and its digest recorded, and the machine will then run only under that policy.\n\nIf everything passes, the certificate names each artefact by digest, including every local module the machine requires through a literal path, and the version of the SAM library. It is sealed with its own digest and signed with a CI key. Its buildId is a function of what was certified, not of when.\n\nAt worker start the plugin recomputes every digest and compares it with the certificate, checks the signature against the trust store, and checks the installed SAM version. One changed byte, and the worker names the file and refuses to start."
+    },
+    {
+      "id": "versioning",
+      "title": "How a new version reaches the live fleet",
+      "ask": "A machine changes shape while runs are in flight. How is the change vetted, and how does a run move to the new version without replaying across it?",
+      "context": "Every Temporal customer has this problem, and the usual answer is patching workflow code with version markers. Polyflow's answer is that a run never replays across versions at all; it hands its state over. That only works if the migration was validated against the very state being moved.",
+      "answer": "The gate vets the new version against every distinct live state with polyvers before promotion and tells each moving run to wait; after the Worker Controller promotes, a wake phase lets each run Continue-as-New onto the new version, carrying its migrated state and open orders. Any run that would have to be pinned fails the gate.",
+      "involves": [
+        "gate-activities",
+        "vet",
+        "polygraph",
+        "certificates",
+        "governed",
+        "temporal"
+      ],
+      "highlight": [
+        "gate-activities",
+        "vet"
+      ],
+      "facts": [
+        "no-cross-replay",
+        "cert-is-version"
+      ],
+      "omits": "The policy ramp gate for G1 workflows, which uses the same activities over guard states instead of machine states.",
+      "narrative": "Two certified versions exist, each on its own worker deployment version whose build id is its certificate's. Runs on v1 are pinned there.\n\nThe gate workflow's first phase reads the fleet: every running governed run of the machine on the old build id, with its machine state and its open order kinds. vet refuses to look at a new version that was not admitted, then runs polyvers once per distinct state. polyvers classifies the change into lanes and runs the gates that lane needs, including migration validation over that exact state. Per run the decision is auto-upgrade, migrate with a specific migrated state, or pin. A run with an open order the new version cannot complete is pinned too.\n\nIf any run pins, the gate fails and nothing is promoted; keeping those runs on the old workers is the operator's decision, not a default. Otherwise the gate applies each decision through polyflow.migrate, carrying the digest of the state it was computed from and, with verified principals, a token bound to that run and target. The run records the pending migration and waits.\n\nThe operator promotes v2. The gate's wake phase signals each waiting run; on that activation the run sees its target version changed and continues as new with AUTO_UPGRADE, computing what it carries after its closing flush so nothing accepted during the hand-over is lost. The new execution runs on v2, re-issues open orders under the same ids, and its new actions work on a run that started under v1. If the run moved on since the gate read it, the migration is dropped and the gate re-vets."
+    },
+    {
+      "id": "principals",
+      "title": "Who may approve, report and claim",
+      "ask": "Anyone with an Update permission can send polyflow.approve. How does the platform know who they are, and why is a token not enough?",
+      "context": "Temporal has no built-in notion of who sent an Update, and it keeps every accepted Update's arguments in history, readable by anyone with history access. A bearer credential in an Update is therefore a credential lying in a log.",
+      "answer": "With a trust store, every state-changing Update carries an ed25519 token minted outside the workflow and verified inside it. The token is bound to one action: for an approval, the approval id, run, decision and arguments digest. A lifted token can only repeat what history already records.",
+      "involves": [
+        "approver",
+        "interceptor",
+        "governed",
+        "principals",
+        "gateway"
+      ],
+      "highlight": [
+        "principals"
+      ],
+      "facts": [
+        "action-bound"
+      ],
+      "omits": "The rules that decide whether an approval is needed, which are question two.",
+      "narrative": "The plugin takes a map of key ids to public keys. From then on the interceptor's approve validator, and every GovernedWorkflow validator for report, claim, propose, release and migrate, require a signed token instead of a name.\n\nA token is minted where the person is already authenticated, by the identity bridge, the approvals console or the gateway, with signPrincipal. Its body names the key, the id, the roles, the namespace it may act in, an issue and expiry time, and the act: the operation, the workflow, and what the operation is about. For a report that is the order, its attempt and a digest of the outcome; for a migration, the run, the from-digest and the target.\n\nThe workflow verifies the signature itself with a pure-JavaScript ed25519 implementation, because the isolate has no crypto. It refuses by size and shape before hashing anything, so a large token cannot burn the workflow task's deadline. The validator verifies; the handler, which also runs on replay, takes the claims the validator already checked, so rotating a key out of the trust store does not break old runs.\n\nAn escalation shows the approver the frozen arguments; the token binds their digest, so the approver approves exactly what they saw and nothing else runs on that approval. The gateway mints a 60-second token per report or claim from its own key when it has one."
+    },
+    {
+      "id": "integrity",
+      "title": "What keeps the record confidential and tamper-evident",
+      "ask": "The ledger lives in history and on disks other people can read. What stops them reading it, and what shows if someone changes it?",
+      "context": "NFR-7 says the platform must be compatible with the customer's codec and never need plaintext. Temporal's payload codecs, though, skip headers, which is exactly where the ledger travels.",
+      "answer": "Confidentiality: with a worker-held data key the interceptor seals headers with ChaCha20-Poly1305 under a keyed synthetic nonce, and the exporter refuses plaintext. Tamper evidence: every event hashes its predecessor, the exporter signs verified heads, sinks refuse conflicts and forks whole, and the service raises alerts.",
+      "involves": [
+        "interceptor",
+        "sealed",
+        "ledger",
+        "exporter",
+        "sinks"
+      ],
+      "highlight": [
+        "sealed",
+        "ledger"
+      ],
+      "facts": [
+        "sealed-why",
+        "exporter-signs-own",
+        "no-bodies",
+        "open-dst1r"
+      ],
+      "omits": "Verified principals, which are question seven, and the service's tenancy and rate limits.",
+      "narrative": "Two properties, two mechanisms. Tamper evidence comes from the chain: each event's hash covers its predecessor's, the deployment key signs the head of each verified delta, and a verifier walks the chain and checks that a trusted signature anchors its last event. A sink that already holds a different event at some seq refuses the whole delta and reports it; the service records conflict, fork and gap alerts and can page them.\n\nConfidentiality is the harder one, because payload codecs do not touch headers. The plugin takes a 32-byte data key. Inside the isolate the interceptor seals the delta and the hand-over head with ChaCha20-Poly1305. The nonce is not random: it is an HMAC under a key derived from the data key over the context and the plaintext, so it is identical on every replay of the same task and different whenever the content differs. The context (key id, run, purpose, seq) is bound into the authenticated data, so a sealed body from one run does not open as another's.\n\nThe key never touches disk: the generated interceptor module carries only the key id, and webpack injects the key into the in-memory bundle at worker start. A pre-built bundle that would contain it is refused unless the operator says so. The exporter, the next execution and polyflow export open sealed headers; where keys are configured the exporter refuses a plaintext delta.\n\nOne open defect belongs here: under some Temporal replays the event times of a run's first activation differ between two replays of the same history, which can fork the exported chain at a hand-over. It is tracked as DST1-R and kept visible as a todo test."
+    },
+    {
+      "id": "judgement",
+      "title": "How judgement enters a machine",
+      "ask": "Some steps need a judgement no rule can express. How does a machine ask, what comes back, and what keeps the judge from deciding anything by itself?",
+      "context": "The theme is determinism without disrupting what makes an agent smart. A judge is the one place a model contributes to a state machine, so the contract around it decides whether the machine stays checkable.",
+      "answer": "A machine orders an observation like any other effect. The activity sends only the battery's declared source fields, redacted, to Jev and maps each probability through calibrated bands into true, false or no fact. The facts are recorded as the activity result, so replay never calls the judge again.",
+      "involves": [
+        "governed",
+        "machine-host",
+        "jev-activity",
+        "jev",
+        "machine-dir"
+      ],
+      "highlight": [
+        "jev-activity"
+      ],
+      "facts": [
+        "abstain",
+        "no-bodies"
+      ],
+      "omits": "Human escalation, which handles 'no fact' when the contract says a person decides.",
+      "narrative": "A battery is part of the machine directory: named questions of type noul, each with instructions, an assert band, a refute band and a calibration record naming the model it was measured on. Admission parses it, requires the model and the declared source fields, checks the calibration against a bar (sample size, at least fifteen of each label, precision at least 0.9, the same model), and checks that every fact the manifest maps from a judge is one a battery produces. A question that fails the bar is inert: it yields no fact, ever.\n\nAt run time the machine emits an order whose tool is the observe activity. The activity serves governed runs only, takes only the state fields the battery declares, redacts secrets and card numbers from them, and asks Jev. Jev returns a probability per question, never text.\n\nEach probability crosses the bands: at or above assertAt the fact is true, at or below refuteAt it is false, in between there is no fact. Out-of-range values are malformed, a vendor fault made visible, not a fact. The activity result carries the facts, the abstentions, the rounded probabilities and the model, and Temporal records it in history: on replay the workflow reads the recorded result and never calls the judge again, because Jev's answers jitter and a replay must not.\n\nThe manifest maps facts into the completion action; an absent fact arrives as null, exactly as admission explored it, so a machine that treats abstention as a yes is refused before it can run. The example refund machine refunds only when the judge cleared both questions, and otherwise routes to a person."
+    },
+    {
+      "id": "beyond-ts",
+      "title": "How the platform works beyond TypeScript and Temporal",
+      "ask": "The kernel is written once in TypeScript. How does a Python worker, an OpenAI Agents SDK agent, or a LangGraph agent get the same guarantees, and what is missing there?",
+      "context": "Temporal's main agent story is Python, and the acquisition hedge is a second engine. Both only count if the record and the decisions are the same ones, byte for byte, not a reimplementation that drifts.",
+      "answer": "The Python port reproduces canonical JSON, the chain, the guard and redaction exactly, pinned by vectors generated from the TypeScript kernel. Its plugin governs Python workflows, including an unmodified Agents SDK agent with tools classified by route. QuickJS runs the TypeScript machine host unchanged for G2, and the LangGraph binding reuses the same kernel with a per-thread record.",
+      "involves": [
+        "py-plugin",
+        "py-kernel",
+        "quickjs",
+        "langgraph"
+      ],
+      "highlight": [
+        "py-kernel",
+        "quickjs"
+      ],
+      "facts": [
+        "python-no-g2",
+        "langgraph-no-replay",
+        "fail-closed"
+      ],
+      "omits": "The TypeScript plugin's own path (question one), the CLI and sinks the Python ledgers verify under, and the gateway, which is TypeScript only.",
+      "narrative": "Conformance comes first. Generators run the TypeScript kernel over canonical-JSON edge cases, guard scripts, routed policies, sealed headers, sink paths and machine step sequences, and write the results as JSON. The Python tests replay every case and require identical digests, decisions and witnesses. Where JS and Python regular expressions differ, the port matches JS.\n\nThe Python plugin governs activities, children, signals and Nexus operations through the same event shapes, seals headers the same way, and writes to sinks with the same on-disk layout, so a Python ledger verifies under the TypeScript CLI. The OpenAI Agents SDK routes every MCP tool through one activity per server, so a policy declares a route from that activity to the tool name inside its argument, and each tool is classified on its own; an undeclared routed tool is always denied.\n\nG2 needs the machine host, and Python has no JavaScript. QuickJS compiled to WebAssembly runs the kernel's own machine-host module, sam-pattern and the machine as one script under wasmtime, with an instruction budget and no host functions at all; a corpus of 512 operations shows it stepping exactly as the TypeScript host does. What is not built is a Python GovernedWorkflow that maps orders to activities and timers.\n\nLangGraph is not Temporal: no history, no replay. The binding hooks the ToolNode seam, decides each tool call with the same guard, and keeps the chain head and guard state in a locked per-thread record beside the sink, never in the agent's messages. A resumed thread continues one chain; a crashed step re-runs as the same effect; a thread is closed by the user, and polyflow verify --thread checks its chains as one record."
+    }
+  ]
+}

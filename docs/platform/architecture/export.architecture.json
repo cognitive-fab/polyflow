@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How the ledger reaches a verifier",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "How the ledger reaches a verifier",
+        "focus": [
+          "exporter",
+          "sinks"
+        ],
+        "note": "The exporter, an activity-side interceptor on the worker, reads the delta off the header, verifies it chains from what the sink already hol…"
+      },
+      {
+        "id": "worker",
+        "label": "Worker process (Node)",
+        "focus": [
+          "exporter",
+          "sinks"
+        ],
+        "note": "Runs with the operator's credentials and does I/O; nothing here is replay-constrained, and nothing here can change a verdict"
+      },
+      {
+        "id": "service",
+        "label": "Governance service",
+        "focus": [
+          "svc-api",
+          "svc-store",
+          "evidence"
+        ],
+        "note": "A separate process that holds ledgers from many workers and namespaces; it stores nothing it cannot chain, and signs nothing itself"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "temporal",
+      "type": "external",
+      "label": "Temporal server",
+      "pos": [
+        325,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "history, task queues"
+    },
+    {
+      "id": "exporter",
+      "type": "backend",
+      "label": "Exporter",
+      "pos": [
+        590,
+        197
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "activity interceptor",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs",
+          "label": "exporter()"
+        }
+      ]
+    },
+    {
+      "id": "sinks",
+      "type": "database",
+      "label": "Sinks",
+      "pos": [
+        855,
+        197
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "file, memory, http",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/sink.mjs"
+        }
+      ]
+    },
+    {
+      "id": "svc-api",
+      "type": "backend",
+      "label": "Service API",
+      "pos": [
+        855,
+        396
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "HTTP, bearer tokens",
+      "sources": [
+        {
+          "path": "platform/packages/service/src/server.mjs"
+        }
+      ]
+    },
+    {
+      "id": "svc-store",
+      "type": "database",
+      "label": "Service store",
+      "pos": [
+        1120,
+        346
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "SQLite; Postgres deferred",
+      "sources": [
+        {
+          "path": "platform/packages/service/src/store.mjs"
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "polyflow CLI",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "verify export admit vet",
+      "sources": [
+        {
+          "path": "platform/packages/cli/src/main.mjs"
+        }
+      ]
+    },
+    {
+      "id": "evidence",
+      "type": "backend",
+      "label": "Evidence pack",
+      "pos": [
+        1120,
+        446
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "EU AI Act, ISO 42001",
+      "sources": [
+        {
+          "path": "platform/packages/service/src/evidence.mjs"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Worker process (Node)",
+      "wraps": [
+        "exporter",
+        "sinks"
+      ],
+      "pad": 20
+    },
+    {
+      "kind": "region",
+      "label": "Governance service",
+      "wraps": [
+        "svc-api",
+        "svc-store",
+        "evidence"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "temporal",
+      "to": "exporter",
+      "label": "activity task · event",
+      "labelAt": [
+        560,
+        60
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "exporter",
+      "to": "sinks",
+      "label": "write, signed",
+      "labelAt": [
+        873,
+        273
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "from": "exporter",
+      "to": "svc-api",
+      "label": "POST /v1/ledger · HTTPS",
+      "labelAt": [
+        825,
+        273
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "svc-api",
+      "to": "svc-store",
+      "label": "chain it · SQL",
+      "labelAt": [
+        1090,
+        383
+      ]
+    },
+    {
+      "from": "svc-api",
+      "to": "evidence",
+      "label": "evidence pack",
+      "labelAt": [
+        1138,
+        422
+      ]
+    },
+    {
+      "from": "cli",
+      "to": "sinks",
+      "label": "verify a ledger · file",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          135,
+          16
+        ],
+        [
+          930,
+          16
+        ]
+      ],
+      "labelAt": [
+        533,
+        22
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "cli",
+      "to": "temporal",
+      "label": "export from history · file",
+      "labelAt": [
+        295,
+        124
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "The exporter, an activity-side interceptor on the worker, reads the delta off the header, verifies it chains from what the sink already holds, signs the head it verified with the deployment key, and writes both",
+        "The CLI or the service verifies the chain, the signatures and the closure offline"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "Sealing, which is question eight",
+        "the workflow side, which is question one",
+        "Connected but out of scope: Workflow interceptor, Admission, Gate workflows, GovernedWorkflow, Python plugin, LangGraph binding"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "What it guarantees",
+      "items": [
+        "The exporter signs only heads it verified itself — a header can claim anything; a delta for another run, another workflow, or a chain start that is not the activity's own run is refused and never signed",
+        "The Temporal history alone rebuilds the ledger — every delta is carried on an activity header, so a sink that was down loses nothing polyflow export cannot recover"
+      ]
+    }
+  ]
+}

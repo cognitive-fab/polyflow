@@ -1,0 +1,34 @@
+{
+  "name": "expense",
+  "description": "Temporal's expense sample as a certified machine: create the expense, wait for a person's approval within a window, pay once.",
+  "area": "samples/expense",
+  "inputAction": "START",
+  "tools": {
+    "createExpense": {
+      "tool": "createExpense",
+      "why": "register the expense with the expense server (the sample's activity, unchanged)"
+    },
+    "request_approval": {
+      "tool": "ask_user",
+      "why": "money leaves next: a person decides",
+      "performer": "human"
+    },
+    "payment": {
+      "tool": "payment",
+      "why": "pay the approved expense (the sample's activity, unchanged)"
+    }
+  },
+  "key": {
+    "template": "{expenseId}",
+    "fields": {
+      "expenseId": {
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "description": "the expense's business id; a second start for the same id attaches to the first run"
+      }
+    }
+  },
+  "stopAction": "STOP",
+  "unstoppable": {
+    "paying": "the payment is in flight: stopping would not unpay it; the run ends when the payment answers"
+  }
+}

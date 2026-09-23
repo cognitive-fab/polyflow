@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How a machine is certified",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "How a machine is certified",
+        "focus": [
+          "admit",
+          "certificates"
+        ],
+        "note": "Admission explores the machine over its contract's whole declared domain: effect invariants over every path, state invariants in every stat…"
+      },
+      {
+        "id": "ci",
+        "label": "CI and operator tooling",
+        "focus": [
+          "cli",
+          "admit",
+          "explore",
+          "polygraph",
+          "certificates"
+        ],
+        "note": "Runs before deployment and produces signed artefacts; a worker trusts only what it can verify against a public key"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "polyflow CLI",
+      "pos": [
+        60,
+        149
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "verify export admit vet",
+      "sources": [
+        {
+          "path": "platform/packages/cli/src/main.mjs"
+        }
+      ]
+    },
+    {
+      "id": "admit",
+      "type": "backend",
+      "label": "Admission",
+      "pos": [
+        380,
+        149
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "writes the certificate",
+      "sources": [
+        {
+          "path": "platform/packages/cli/src/admit.mjs"
+        }
+      ]
+    },
+    {
+      "id": "explore",
+      "type": "backend",
+      "label": "Structural explorer",
+      "pos": [
+        700,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "liveness, stop, waits",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/explore.mjs"
+        }
+      ]
+    },
+    {
+      "id": "polygraph",
+      "type": "external",
+      "label": "polygraph / polyvers",
+      "pos": [
+        700,
+        149
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "@cognitive-fab/polygraph"
+    },
+    {
+      "id": "certificates",
+      "type": "backend",
+      "label": "Certificates",
+      "pos": [
+        700,
+        250
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "artefact digests, buildId",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/certificates.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/certificate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-dir",
+      "type": "database",
+      "label": "Machine directory",
+      "pos": [
+        1020,
+        398
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "descriptor, contract",
+      "sources": [
+        {
+          "path": "platform/examples/customer-brief/polyflow.workflow.json"
+        },
+        {
+          "path": "platform/examples/customer-brief/effects.cjs"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "CI and operator tooling",
+      "wraps": [
+        "cli",
+        "admit",
+        "explore",
+        "polygraph",
+        "certificates"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "admit",
+      "label": "polyflow admit",
+      "labelAt": [
+        295,
+        161
+      ]
+    },
+    {
+      "from": "admit",
+      "to": "explore",
+      "label": "structural checks",
+      "labelAt": [
+        615,
+        60
+      ]
+    },
+    {
+      "from": "admit",
+      "to": "polygraph",
+      "label": "check-effects",
+      "labelAt": [
+        663,
+        161
+      ]
+    },
+    {
+      "from": "admit",
+      "to": "certificates",
+      "label": "seal and sign",
+      "labelAt": [
+        615,
+        209
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "from": "admit",
+      "to": "machine-dir",
+      "label": "reads every artefact · file",
+      "labelAt": [
+        697,
+        225
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "Admission explores the machine over its contract's whole declared domain: effect invariants over every path, state invariants in every state, liveness, stops, waits and batteries",
+        "The certificate digests every file and local module and is signed",
+        "a worker with a trust store refuses any machine whose files differ by a byte"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "The runtime host that steps the same machine, and the worker's refusal, which is question four's plugin",
+        "Connected but out of scope: Sinks, Temporal server, SAM machine host, PolyflowPlugin, vet"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Doctrine",
+      "items": [
+        "Every check is a consistency check, not a proof — admission is exhaustive only over the finite domains a contract declares, and the guard decides only what its rules express",
+        "The certificate is the version — the buildId is a digest of what was certified, and under Worker Versioning the worker runs under that build id or not at all"
+      ]
+    }
+  ]
+}

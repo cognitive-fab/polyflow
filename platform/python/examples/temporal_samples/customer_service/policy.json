@@ -1,0 +1,62 @@
+{
+  "policy": "airline-seats",
+  "version": 1,
+  "unlabelled": "deny",
+  "routes": {
+    "Airline-stateless-call-tool-v2": "0.tool_name"
+  },
+  "effects": {
+    "invoke_model_activity": {
+      "kind": "model",
+      "class": "none"
+    },
+    "Airline-stateless-list-tools": {
+      "kind": "discover",
+      "class": "none"
+    },
+    "Airline-stateless-list-prompts": {
+      "kind": "discover",
+      "class": "none"
+    },
+    "Airline-stateless-get-prompt-v2": {
+      "kind": "discover",
+      "class": "none"
+    },
+    "Airline-stateless-call-tool-v2:faq_lookup_tool": {
+      "kind": "faq",
+      "class": "none"
+    },
+    "Airline-stateless-call-tool-v2:get_booking": {
+      "kind": "read",
+      "class": "none",
+      "labels": [
+        "reads-private"
+      ]
+    },
+    "Airline-stateless-call-tool-v2:update_seat": {
+      "kind": "booking",
+      "class": "irreversible"
+    }
+  },
+  "rules": [
+    {
+      "id": "booking-after-lookup",
+      "type": "requires-prior",
+      "guards": "booking",
+      "prior": "read"
+    },
+    {
+      "id": "one-seat-change",
+      "type": "at-most",
+      "guards": "booking",
+      "n": 1
+    },
+    {
+      "id": "model-rate",
+      "type": "rate",
+      "guards": "model",
+      "n": 30,
+      "perMs": 60000
+    }
+  ]
+}

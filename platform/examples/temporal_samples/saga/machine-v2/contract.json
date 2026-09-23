@@ -1,0 +1,223 @@
+{
+  "lang": "javascript",
+  "stateKeys": [
+    {
+      "name": "phase",
+      "type": "enum: 'idle' | 'creating_account' | 'adding_address' | 'adding_client' | 'adding_bank' | 'adding_kyc' | 'opened' | 'undo_bank' | 'undo_client' | 'undo_address' | 'compensated' | 'compensation_failed' | 'failed' | 'stopped'"
+    },
+    {
+      "name": "params",
+      "type": "object, the OpenAccount command ({ accountId, bankId, clientEmail, address, bankDetails, failAt }); {} before START"
+    },
+    {
+      "name": "failedStep",
+      "type": "enum: '' | 'createAccount' | 'addAddress' | 'addClient' | 'addBankAccount' | 'addKycCheck', the forward step that failed ('' if none)"
+    },
+    {
+      "name": "reason",
+      "type": "string, why the run ended without opening ('' otherwise)"
+    }
+  ],
+  "initState": {
+    "phase": "idle",
+    "params": {},
+    "failedStep": "",
+    "reason": ""
+  },
+  "actions": {
+    "START": {
+      "dataFields": {
+        "accountId": "string",
+        "bankId": "string",
+        "clientEmail": "string",
+        "address": "object, PostalAddress",
+        "bankDetails": "object, BankDetails",
+        "failAt": "enum: '' | 'createAccount' | 'addAddress' | 'addClient' | 'addBankAccount' | 'addKycCheck', the sample's failure injection (shouldThrow on that step's command)"
+      }
+    },
+    "ACCOUNT_CREATED": {
+      "dataFields": {}
+    },
+    "ACCOUNT_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "ADDRESS_ADDED": {
+      "dataFields": {}
+    },
+    "ADDRESS_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "CLIENT_ADDED": {
+      "dataFields": {}
+    },
+    "CLIENT_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "BANK_ADDED": {
+      "dataFields": {}
+    },
+    "BANK_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "KYC_PASSED": {
+      "dataFields": {}
+    },
+    "KYC_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "BANK_DISCONNECTED": {
+      "dataFields": {}
+    },
+    "BANK_DISCONNECT_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "CLIENT_REMOVED": {
+      "dataFields": {}
+    },
+    "CLIENT_REMOVE_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "ADDRESSES_CLEARED": {
+      "dataFields": {}
+    },
+    "ADDRESSES_CLEAR_FAILED": {
+      "dataFields": {
+        "reason": "string"
+      }
+    },
+    "STOP": {
+      "dataFields": {}
+    },
+    "CANCEL": {
+      "dataFields": {}
+    }
+  },
+  "dataDomain": {
+    "START": {
+      "accountId": [
+        "acc-1"
+      ],
+      "bankId": [
+        "Foo Bar Savings and Loan"
+      ],
+      "clientEmail": [
+        "bart@simpson.io"
+      ],
+      "address": [
+        {
+          "address1": "123 Temporal Street",
+          "postalCode": "98006"
+        }
+      ],
+      "bankDetails": [
+        {
+          "accountNumber": "111",
+          "routingNumber": "1234555",
+          "accountType": "Checking",
+          "personalOwner": {
+            "firstName": "Bart",
+            "lastName": "Simpson"
+          }
+        }
+      ],
+      "failAt": [
+        "",
+        "addBankAccount",
+        "addKycCheck"
+      ]
+    },
+    "ACCOUNT_CREATED": {},
+    "ACCOUNT_FAILED": {
+      "reason": [
+        "step-failed"
+      ]
+    },
+    "ADDRESS_ADDED": {},
+    "ADDRESS_FAILED": {
+      "reason": [
+        "step-failed"
+      ]
+    },
+    "CLIENT_ADDED": {},
+    "CLIENT_FAILED": {
+      "reason": [
+        "step-failed"
+      ]
+    },
+    "BANK_ADDED": {},
+    "BANK_FAILED": {
+      "reason": [
+        "step-failed"
+      ]
+    },
+    "KYC_PASSED": {},
+    "KYC_FAILED": {
+      "reason": [
+        "step-failed"
+      ]
+    },
+    "BANK_DISCONNECTED": {},
+    "BANK_DISCONNECT_FAILED": {
+      "reason": [
+        "compensation-failed"
+      ]
+    },
+    "CLIENT_REMOVED": {},
+    "CLIENT_REMOVE_FAILED": {
+      "reason": [
+        "compensation-failed"
+      ]
+    },
+    "ADDRESSES_CLEARED": {},
+    "ADDRESSES_CLEAR_FAILED": {
+      "reason": [
+        "compensation-failed"
+      ]
+    },
+    "STOP": {},
+    "CANCEL": {}
+  },
+  "terminalKey": "phase",
+  "terminalStates": [
+    "opened",
+    "compensated",
+    "compensation_failed",
+    "failed",
+    "stopped"
+  ],
+  "specialRules": [
+    {
+      "name": "stale-completions-reject",
+      "note": "A completion arriving in any state other than the one that awaits it is an observable rejection (post == pre), never a fault.",
+      "whenState": "any non-awaiting state",
+      "whenAction": "every completion action"
+    },
+    {
+      "name": "compensate-lifo",
+      "note": "A forward step's failure compensates the steps that succeeded before it, last first: a KYC failure disconnects the bank account, removes the client, then clears the address.",
+      "whenState": "adding_client | adding_bank | adding_kyc",
+      "whenAction": "CLIENT_FAILED | BANK_FAILED | KYC_FAILED"
+    },
+    {
+      "name": "stop-or-cancel",
+      "note": "STOP ends a run that has nothing to undo (idle, creating the account, adding the address: those steps register no compensation upstream either). Once a step succeeded, a person CANCELs instead: the run compensates what succeeded, last first, and ends compensated with reason 'cancelled'.",
+      "whenState": "idle | creating_account | adding_address (STOP); adding_client | adding_bank | adding_kyc (CANCEL)",
+      "whenAction": "STOP | CANCEL"
+    }
+  ],
+  "noOpRule": "An action that does not apply in the current state is reject(reason) - an observable no-op with post == pre."
+}

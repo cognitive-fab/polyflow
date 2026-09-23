@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How an effect is decided at G1",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "How an effect is decided at G1",
+        "focus": [
+          "guard",
+          "policy"
+        ],
+        "note": "The rule kernel decides from the run's own history and the admitted policy. A denial fails the call before it is scheduled with a witness;…"
+      },
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "interceptor",
+          "guard",
+          "policy"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      },
+      {
+        "id": "external",
+        "label": "Outside the platform",
+        "focus": [
+          "customer-workflow",
+          "approver"
+        ],
+        "note": "Nothing here is trusted: every input from it is a claim until the platform verified it"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "customer-workflow",
+      "type": "backend",
+      "label": "Customer workflow",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "unchanged agent code",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/test/fixtures/agent-workflows.mjs",
+          "label": "an agent-shaped workflow used by the tests"
+        }
+      ]
+    },
+    {
+      "id": "interceptor",
+      "type": "backend",
+      "label": "Workflow interceptor",
+      "pos": [
+        380,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "outbound + inbound",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "type": "backend",
+      "label": "Rule kernel",
+      "pos": [
+        700,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "pure, replays exactly",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/rules.mjs"
+        },
+        {
+          "path": "platform/packages/temporal/src/guard-governor.mjs"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "type": "backend",
+      "label": "Policy admission",
+      "pos": [
+        1020,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "digest, reachability",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/policy.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/admit-policy.mjs"
+        }
+      ]
+    },
+    {
+      "id": "approver",
+      "type": "external",
+      "label": "Approver",
+      "pos": [
+        60,
+        174
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "signs principal tokens",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/principals.mjs",
+          "label": "signPrincipal, run outside the workflow"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "interceptor",
+        "guard",
+        "policy"
+      ],
+      "pad": 20
+    },
+    {
+      "kind": "security-group",
+      "label": "Outside the platform",
+      "wraps": [
+        "customer-workflow",
+        "approver"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "customer-workflow",
+      "to": "interceptor",
+      "label": "schedules an activity",
+      "labelAt": [
+        295,
+        63
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "interceptor",
+      "to": "guard",
+      "label": "decide this effect",
+      "labelAt": [
+        615,
+        375
+      ]
+    },
+    {
+      "from": "guard",
+      "to": "policy",
+      "label": "the admitted policy",
+      "labelAt": [
+        935,
+        375
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "from": "approver",
+      "to": "interceptor",
+      "label": "polyflow.approve · gRPC",
+      "labelAt": [
+        367,
+        189
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "The rule kernel decides from the run's own history and the admitted policy",
+        "A denial fails the call before it is scheduled with a witness",
+        "an escalation parks a frozen copy of the call until a person with the role answers, through an Update the interceptor installs"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "Plan admission and verified principals, which have their own questions",
+        "the ledger, which records the outcome but never influences it",
+        "Connected but out of scope: Ledger chain, Sealed headers, Temporal server, Verified principals, Plan admission, PolyflowPlugin"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Doctrine",
+      "items": [
+        "A denial carries a witness the agent can re-plan from — the failure names the rules that fired, what would fix each, and the kinds allowed right now; an agent that reads it stops retrying the same call",
+        "Undeclared is denied — at guard level an activity the policy does not name is denied unless the policy says otherwise; a routed tool the policy does not name is always denied"
+      ]
+    }
+  ]
+}

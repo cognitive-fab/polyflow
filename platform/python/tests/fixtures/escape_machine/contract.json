@@ -1,0 +1,12 @@
+{
+  "lang": "javascript",
+  "stateKeys": [{ "name": "phase", "type": "string" }],
+  "initState": { "phase": "idle" },
+  "actions": {
+    "OK": { "dataFields": {} }, "PROBE": { "dataFields": {} }, "DYNAMIC_REQUIRE": { "dataFields": {} },
+    "CLOCK": { "dataFields": {} }, "NEW_DATE": { "dataFields": {} }, "RANDOM": { "dataFields": {} },
+    "TIMER": { "dataFields": {} }, "SPIN": { "dataFields": {} }, "HOG": { "dataFields": {} }, "DEEP": { "dataFields": {} }, "SWALLOWED_RANDOM": { "dataFields": {} }
+  },
+  "terminalKey": "phase",
+  "terminalStates": ["done"]
+}
