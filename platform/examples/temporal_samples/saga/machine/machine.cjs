@@ -56,6 +56,9 @@ const bank = forward('adding_bank', 'addBankAccount', 'opened', 'undo_client');
 const undoClient = compensation('undo_client', 'undo_address');
 const undoAddress = compensation('undo_address', 'compensated');
 
+const CANCEL_TO = { adding_client: { phase: 'undo_address', step: 'addClient' }, adding_bank: { phase: 'undo_client', step: 'addBankAccount' } };
+const FAIL_AT = ['createAccount', 'addAddress', 'addClient', 'addBankAccount'];
+
 const action = () => (data = {}) => ({ ...data });
 
 // NOTE: each action needs its OWN function — the library stamps __actionName
@@ -84,12 +87,14 @@ const control = instance({
       ADDRESSES_CLEARED: { action: action(), schema: {}, domain: [{}] },
       ADDRESSES_CLEAR_FAILED: { action: action(), schema: {}, domain: [{ reason: 'compensation-failed' }] },
       STOP: { action: action(), schema: {}, domain: [{}] },
+      CANCEL: { action: action(), schema: {}, domain: [{}] },
     },
     acceptors: {
       START: (model) => (proposal, { reject, next, unchanged }) => {
         if (model.phase !== 'idle') return reject('already-started');
         if (typeof proposal.accountId !== 'string' || proposal.accountId === '') return reject('account-id-required');
         const { accountId, bankId, clientEmail, address, bankDetails, failAt } = proposal;
+        if (failAt && !FAIL_AT.includes(failAt)) return reject('unknown-fail-at');
         next.phase = 'creating_account';
         next.params = { accountId, bankId, clientEmail, address, bankDetails, failAt: failAt || '' };
         unchanged('failedStep', 'reason');
@@ -107,12 +112,22 @@ const control = instance({
       ADDRESSES_CLEARED: undoAddress.ok,
       ADDRESSES_CLEAR_FAILED: undoAddress.failed,
       STOP: (model) => (proposal, { reject, next, unchanged }) => {
-        // Only a run that has done nothing yet stops; once a step is in
-        // flight the saga ends by its own compensation (declared unstoppable).
-        if (model.phase !== 'idle') return reject('nothing-to-stop');
+        // A run with nothing to undo stops: before, or during, the two steps
+        // that register no compensation upstream either. Past that, CANCEL.
+        if (!['idle', 'creating_account', 'adding_address'].includes(model.phase)) return reject('nothing-to-stop');
         next.phase = 'stopped';
         next.reason = 'stopped';
         unchanged('params', 'failedStep');
+      },
+      CANCEL: (model) => (proposal, { reject, next, unchanged }) => {
+        // A person calls the saga off: what succeeded is compensated, last
+        // first, exactly as a failure of the step in flight would be.
+        const undo = CANCEL_TO[model.phase];
+        if (!undo) return reject('nothing-to-cancel');
+        next.phase = undo.phase;
+        next.failedStep = undo.step;
+        next.reason = 'cancelled';
+        unchanged('params');
       },
     },
     reactors: [],

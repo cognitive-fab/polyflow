@@ -44,7 +44,8 @@
       "retry": {
         "maxAttempts": 1000,
         "baseMs": 1000,
-        "timeoutMs": 3600000
+        "timeoutMs": 3600000,
+        "heartbeatMs": 30000
       }
     },
     "payment": {

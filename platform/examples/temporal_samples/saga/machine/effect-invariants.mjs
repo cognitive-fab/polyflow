@@ -7,7 +7,25 @@
 const FORWARD = ['createAccount', 'addAddress', 'addClient', 'addBankAccount'];
 const UNDO = { removeClient: 'CLIENT_ADDED', clearPostalAddresses: 'ADDRESS_ADDED' };
 
+const COMPLETIONS = { ACCOUNT_CREATED: 'createAccount', ACCOUNT_FAILED: 'createAccount', ADDRESS_ADDED: 'addAddress', ADDRESS_FAILED: 'addAddress', CLIENT_ADDED: 'addClient', CLIENT_FAILED: 'addClient', BANK_ADDED: 'addBankAccount', BANK_FAILED: 'addBankAccount', CLIENT_REMOVED: 'removeClient', CLIENT_REMOVE_FAILED: 'removeClient', ADDRESSES_CLEARED: 'clearPostalAddresses', ADDRESSES_CLEAR_FAILED: 'clearPostalAddresses' };
+// [a compensation, the success that makes a later compensation due first, that compensation]
+const DUE_FIRST = [['clearPostalAddresses', 'CLIENT_ADDED', 'removeClient']];
+
 export const effectInvariants = [
+  {
+    // A completion (success or failure) is only ever stepped after its order
+    // was emitted: no step is skipped by a stale or forged completion.
+    name: 'no-completion-without-its-order',
+    pred: (path) => path.actions.every((a, j) => !(a.action in COMPLETIONS) ||
+      path.emitted.some((e) => e.kind === COMPLETIONS[a.action] && e.step <= j)),
+  },
+  {
+    // Nothing that succeeded is skipped on the way back: the address is cleared
+    // only after the client (if added) was removed, and so on up the chain.
+    name: 'every-succeeded-step-is-compensated-first',
+    pred: (path) => path.emitted.every((e, i) => DUE_FIRST.every(([comp, success, due]) =>
+      e.kind !== comp || !path.actionBefore(success, i) || path.emitted.some((d) => d.kind === due && d.step < e.step))),
+  },
   {
     // A compensation is only ever emitted for a step that succeeded before it.
     name: 'compensation-only-for-a-step-that-succeeded',

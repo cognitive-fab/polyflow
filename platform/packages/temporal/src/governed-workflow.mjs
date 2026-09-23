@@ -17,7 +17,7 @@
 
 import {
   proxyActivities, workflowInfo, condition, setHandler, defineQuery, defineUpdate, defineSignal,
-  sleep, CancellationScope, ApplicationFailure, isCancellation, allHandlersFinished, makeContinueAsNewFunc,
+  sleep, CancellationScope, ApplicationFailure, isCancellation, allHandlersFinished, makeContinueAsNewFunc, ActivityCancellationType,
 } from '@temporalio/workflow';
 import { createHost, digest, verifyPrincipal, principalClaims } from '@cognitive-fab/polyflow-kernel';
 import { governorOf } from './governor-registry.mjs';
@@ -55,6 +55,14 @@ const retryOf = (decl) => {
   const r = decl?.retry ?? {};
   return {
     startToCloseTimeout: r.timeoutMs ?? 120_000,
+    // Calling an order off waits for the activity to actually stop (or finish):
+    // a hand-over that carried an order still running on the old worker would
+    // re-issue it on the new one and do the step twice (P11 sample 3 review, B1).
+    cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+    // An order that parks (a person's) heartbeats; its heartbeat timeout is also
+    // what bounds how soon a cancellation reaches it (the SDK throttles
+    // heartbeats to 80% of it, or 30 s without one).
+    ...(r.heartbeatMs ? { heartbeatTimeout: r.heartbeatMs } : {}),
     retry: {
       maximumAttempts: r.maxAttempts ?? 3,
       initialInterval: r.baseMs ?? 1000,
@@ -379,10 +387,13 @@ export async function GovernedWorkflow(args = {}) {
     // person's answer to an order is in the signed chain, not only in Temporal's
     // history (P11 sample 2 review, M1).
     const by = actor ? { id: actorId(actor), verified: Boolean(actor.verified), ...(Array.isArray(actor.roles) ? { roles: actor.roles } : {}) } : null;
-    governorOf(workflowInfo().runId)?.record?.('proposal', {
-      source: role === 'human' ? 'human' : source === 'signal' ? 'signal' : 'agent',
-      action, dataDigest: digest(data), ...(by ? { principal: by } : {}), ...(orderId ? { orderId } : {}),
-    });
+    // (A signal's arrival is already a ledger proposal, recorded by the interceptor.)
+    if (source !== 'signal') {
+      governorOf(workflowInfo().runId)?.record?.('proposal', {
+        source: role === 'human' ? 'human' : 'agent',
+        action, dataDigest: digest(data), ...(by ? { principal: by } : {}), ...(orderId ? { orderId } : {}),
+      });
+    }
     return step(action, data, { source, actionId, by });
   }
 
@@ -632,10 +643,20 @@ export async function GovernedWorkflow(args = {}) {
 
   async function handOver() {
     handingOver = true;
+    // Orders in flight are called off and awaited: an activity that heartbeats
+    // stops and is carried open; one that does not runs to its end here, and
+    // its completion is stepped on THIS version. Nothing is done twice.
     for (const o of [...orders.values()].filter((x) => x.status === 'open')) o.scope?.cancel();
     await Promise.allSettled([...inflight]);
     // Never hand over with an Update handler mid-flight: its caller would get no answer.
     await condition(allHandlersFinished);
+    if (pendingMigration && digest(state) !== pendingMigration.from) {
+      // The run moved on while its work was called off: the state the gate
+      // vetted is not the state it holds. Stay on this version; the gate re-vets.
+      record({ seq, action: 'polyflow.migrate', data: { toBuildId: pendingMigration.toBuildId }, pre: state, post: state, stepKind: 'migration-stale', rejectReason: 'the run moved on after the migration was decided', actionId: null, source: 'version', at: Date.now() });
+      pendingMigration = null;
+      if (!workflowInfo().continueAsNewSuggested) { handingOver = false; return; }
+    }
     // Onto the new version when the gate said so and Worker Versioning made it current.
     const upgrade = Boolean(pendingMigration?.onVersionChange && workflowInfo().targetWorkerDeploymentVersionChanged);
     const entry = governorOf(info.runId);

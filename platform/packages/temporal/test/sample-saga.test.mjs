@@ -13,7 +13,11 @@
 // (f) vet v1 → v2 over a fleet in every distinct v1 state: none pinned;
 // (g) an incompatible v3 (the address step removed) is pinned, and the gate refuses it;
 // (h) end to end: a run parked in `adding_bank` on v1 is vetted, told, and when v2
-//     is current continues as new onto v2, where its next order is addKycCheck.
+//     is current continues as new onto v2, where its next order is addKycCheck;
+//     the record is one chain across the hand-over;
+// (i) a step in flight that does not heartbeat finishes where it started: the
+//     hand-over waits for it, it runs once, and the run (moved on) stays on v1;
+// (j) a person CANCELs a saga past its first steps: what succeeded is compensated.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +28,7 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/activity';
 import { admit } from '@cognitive-fab/polyflow-cli/src/admit.mjs';
 import { PolyflowPlugin, memorySink, startGoverned, loadMachineDir, generateSigningKey, vet } from '../src/index.mjs';
+import { verifyChain } from '@cognitive-fab/polyflow-kernel';
 import { startEnv, scheduled, quiet } from './helpers.mjs';
 
 const SAMPLE = fileURLToPath(new URL('../../../examples/temporal_samples/saga/', import.meta.url));
@@ -71,7 +76,7 @@ async function worker(taskQueue, activities = sample, dir = V1) {
   return Worker.create({
     connection: env.nativeConnection, taskQueue, workflowsPath: join(SAMPLE, 'src', 'workflows.mjs'), activities,
     plugins: [new PolyflowPlugin({ sink: memorySink(), machines: { saga: dir }, allowUncertified: true })],
-    maxCachedWorkflows: 0, bundlerOptions: { logger: quiet },
+    maxCachedWorkflows: 0, bundlerOptions: { logger: quiet }, defaultHeartbeatThrottleInterval: '200ms', maxHeartbeatThrottleInterval: '200ms',
   });
 }
 const start = (taskQueue, input) => startGoverned(env.client, { descriptor, input, taskQueue, workflowExecutionTimeout: '2 minutes' });
@@ -97,6 +102,16 @@ test('(b) a machine that compensates a step that never succeeded is refused, by 
   const r = await admit(dir, { key });
   assert.equal(r.ok, false);
   assert.match(JSON.stringify(r.problems), /compensation-only-for-a-step-that-succeeded/);
+  // A bank failure that clears the address but skips removing the client.
+  const skip = copyMachine(V1, (d) => edit(d, 'machine.cjs', "forward('adding_bank', 'addBankAccount', 'opened', 'undo_client')", "forward('adding_bank', 'addBankAccount', 'opened', 'undo_address')"));
+  const r2 = await admit(skip, { key });
+  assert.equal(r2.ok, false);
+  assert.match(JSON.stringify(r2.problems), /every-succeeded-step-is-compensated-first/);
+  // A completion the machine accepts without its order: BANK_ADDED from adding_client opens the account with no bank step.
+  const forged = copyMachine(V1, (d) => edit(d, 'machine.cjs', "      BANK_ADDED: bank.ok,", "      BANK_ADDED: (model) => (proposal, { reject, next, unchanged }) => { if (!['adding_bank', 'adding_client'].includes(model.phase)) return reject('stale-completion'); next.phase = 'opened'; unchanged('params', 'failedStep', 'reason'); },"));
+  const r3 = await admit(forged, { key });
+  assert.equal(r3.ok, false);
+  assert.match(JSON.stringify(r3.problems), /no-completion-without-its-order/);
 });
 
 test('(c) the happy path opens the account: four steps, in order, once each', async () => {
@@ -166,16 +181,25 @@ test('(g) an incompatible v3 (the address step removed) is pinned by vet, and th
     edit(d, 'effect-invariants.mjs', "['createAccount', 'addAddress', 'addClient', 'addBankAccount', 'addKycCheck']", "['createAccount', 'addClient', 'addBankAccount', 'addKycCheck']");
     edit(d, 'effect-invariants.mjs', "['ACCOUNT_CREATED', 'ADDRESS_ADDED', 'CLIENT_ADDED', 'BANK_ADDED']", "['ACCOUNT_CREATED', 'CLIENT_ADDED', 'BANK_ADDED']");
     edit(d, 'effect-invariants.mjs', "const UNDO = { disconnectBankAccounts: 'BANK_ADDED', removeClient: 'CLIENT_ADDED', clearPostalAddresses: 'ADDRESS_ADDED' };", "const UNDO = { disconnectBankAccounts: 'BANK_ADDED', removeClient: 'CLIENT_ADDED' };");
+    edit(d, 'effect-invariants.mjs', "[['clearPostalAddresses', 'CLIENT_ADDED', 'removeClient'], ['removeClient', 'BANK_ADDED', 'disconnectBankAccounts']]", "[['removeClient', 'BANK_ADDED', 'disconnectBankAccounts']]");
+    edit(d, 'machine.cjs', "adding_client: { phase: 'undo_address', step: 'addClient' }, ", '');
+    edit(d, 'machine.cjs', "if (!['idle', 'creating_account', 'adding_address'].includes(model.phase)) return reject('nothing-to-stop');", "if (!['idle', 'creating_account', 'adding_client'].includes(model.phase)) return reject('nothing-to-stop');");
+    edit(d, 'invariants.mjs', "['createAccount', 'addAddress'].includes(s.failedStep)", "['createAccount', 'addClient'].includes(s.failedStep)");
+    edit(d, 'invariants.mjs', "['addClient', 'addBankAccount', 'addKycCheck'].includes(s.failedStep)", "['addBankAccount', 'addKycCheck'].includes(s.failedStep)");
     const p = join(d, 'polyflow.workflow.json'); const j = JSON.parse(readFileSync(p, 'utf8'));
-    delete j.tools.addAddress; delete j.tools.clearPostalAddresses; delete j.unstoppable.adding_address; delete j.unstoppable.undo_address;
+    delete j.tools.addAddress; delete j.tools.clearPostalAddresses; delete j.unstoppable.adding_client; delete j.unstoppable.undo_address;
     writeFileSync(p, JSON.stringify(j, null, 2));
   });
   const r3 = await admit(v3, { key });
   assert.ok(r3.ok, `v3 admits on its own (nothing reaches the removed step): ${JSON.stringify(r3.problems)}`);
   const r = vet({ oldDir: v1, newDir: v3, fleet: FLEET, trust });
   assert.equal(r.ok, false);
-  const pinned = r.decisions.filter((d) => d.decision === 'pin').map((d) => d.workflowId);
-  assert.ok(pinned.includes('polyflow/saga/f-2') && pinned.includes('polyflow/saga/f-6'), `the runs in adding_address and undo_address are pinned: ${JSON.stringify(r.decisions.map((d) => [d.workflowId, d.decision, d.failed?.map((f) => f.gate)]))}`);
+  // Every run is pinned: the removed actions fail the vocabulary gate for all of
+  // them (deprecate, don't delete), and the two parked in the removed step also
+  // hold orders the new version cannot complete.
+  const gates = Object.fromEntries(r.decisions.map((d) => [d.workflowId, [d.decision, (d.failed ?? []).map((f) => f.gate)]]));
+  assert.ok(r.decisions.every((d) => d.decision === 'pin'), JSON.stringify(gates));
+  for (const id of ['polyflow/saga/f-2', 'polyflow/saga/f-6']) assert.ok(gates[id][1].includes('open-orders'), `${id}: ${gates[id][1]}`);
   // The gate, given the same versions, refuses to promote.
   const q = 'saga-g';
   const plugin = new PolyflowPlugin({ sink: memorySink(), machines: { saga: v1 }, trust, gate: { client: env.client } });
@@ -203,12 +227,14 @@ test('(h) a run parked on v1 is vetted, told, and continues as new onto v2 when 
       return sample.addBankAccount(params);
     },
   };
+  const sink = memorySink(); // one record, whichever worker writes it
   const versioned = async (dir) => {
-    const plugin = new PolyflowPlugin({ sink: memorySink(), machines: { saga: dir }, trust, gate: { client: env.client } });
+    const plugin = new PolyflowPlugin({ sink, machines: { saga: dir }, trust, gate: { client: env.client } });
     const buildId = plugin.buildId();
     const w = await Worker.create({
       connection: env.nativeConnection, taskQueue: q, workflowsPath: join(SAMPLE, 'src', 'workflows.mjs'), activities, maxCachedWorkflows: 0, bundlerOptions: { logger: quiet },
       workerDeploymentOptions: { useWorkerVersioning: true, version: { deploymentName: DEPLOYMENT, buildId }, defaultVersioningBehavior: 'PINNED' },
+      defaultHeartbeatThrottleInterval: '200ms', maxHeartbeatThrottleInterval: '200ms',
       plugins: [plugin],
     });
     return { worker: w, buildId, running: w.run() };
@@ -256,11 +282,104 @@ test('(h) a run parked on v1 is vetted, told, and continues as new onto v2 when 
     const hist = await g.fetchHistory();
     assert.ok(scheduled(hist).includes('addKycCheck'), `v2's new step ran on a run that started under v1: ${scheduled(hist)}`);
     const first = await env.client.workflow.getHandle(workflowId, firstRun).fetchHistory();
-    assert.ok(first.events.some((e) => e.workflowExecutionContinuedAsNewEventAttributes), 'exactly one continue-as-new at the hand-over');
+    assert.ok(first.events.some((e) => e.workflowExecutionContinuedAsNewEventAttributes), 'the v1 execution ended in a continue-as-new');
     assert.ok(!scheduled(first).includes('addKycCheck'), 'v1 never ordered the KYC step');
+    assert.ok(!hist.events.some((e) => e.workflowExecutionContinuedAsNewEventAttributes), 'and the v2 execution in none: one hand-over');
+    // One chain across the hand-over: v1's part closes continued-as-new, v2's part
+    // continues it to completion, and nothing is done twice.
+    const { events } = sink.read({ ns: 'default', wf: workflowId, run: firstRun });
+    assert.ok(verifyChain(events).ok, 'the chain verifies across the hand-over');
+    assert.deepEqual(events.filter((e) => e.kind === 'closure').map((e) => e.body.outcome), ['continued-as-new', 'completed']);
+    const banks = events.filter((e) => e.kind === 'effect' && e.body.activityType === 'addBankAccount');
+    assert.equal(banks.length, 2, 'called off on v1 (carried open), re-issued on v2');
   } finally {
     gate.open = true;
     w1.worker.shutdown(); w2.worker.shutdown();
     await Promise.allSettled([w1.running, w2.running]);
   }
+});
+
+test('(i) a step in flight that does not heartbeat finishes where it started: the hand-over waits, the step runs once, the run stays on v1', async () => {
+  const q = 'saga-i';
+  const DEPLOYMENT = 'polyflow-saga-i';
+  const v1 = copyMachine(V1); const v2 = copyMachine(V2);
+  assert.ok((await admit(v1, { key })).ok); assert.ok((await admit(v2, { key })).ok);
+  const calls = [];
+  const activities = {
+    ...sample,
+    // Three seconds, no heartbeat: a cancellation cannot reach it; it runs to its end.
+    addBankAccount: async (params) => { calls.push(Date.now()); await new Promise((r) => setTimeout(r, 3000)); return sample.addBankAccount(params); },
+  };
+  const sink = memorySink();
+  const versioned = async (dir) => {
+    const plugin = new PolyflowPlugin({ sink, machines: { saga: dir }, trust, gate: { client: env.client } });
+    const buildId = plugin.buildId();
+    const w = await Worker.create({
+      connection: env.nativeConnection, taskQueue: q, workflowsPath: join(SAMPLE, 'src', 'workflows.mjs'), activities, maxCachedWorkflows: 0, bundlerOptions: { logger: quiet },
+      workerDeploymentOptions: { useWorkerVersioning: true, version: { deploymentName: DEPLOYMENT, buildId }, defaultVersioningBehavior: 'PINNED' },
+      defaultHeartbeatThrottleInterval: '200ms', maxHeartbeatThrottleInterval: '200ms',
+      plugins: [plugin],
+    });
+    return { worker: w, buildId, running: w.run() };
+  };
+  const setCurrent = (buildId) => until(async () => {
+    await env.client.workflowService.setWorkerDeploymentCurrentVersion({ namespace: 'default', deploymentName: DEPLOYMENT, buildId });
+    return true;
+  }, `version ${buildId} to become current`, 100);
+  const w1 = await versioned(v1);
+  const w2 = await versioned(v2);
+  try {
+    await setCurrent(w1.buildId);
+    const { handle, workflowId } = await start(q, COMMAND('saga-i-1'));
+    await until(async () => (await handle.query('polyflow.state')).state.phase === 'adding_bank', 'adding_bank');
+    const firstRun = handle.firstExecutionRunId;
+    const report = await env.client.workflow.execute('PolyflowGateWorkflow', {
+      taskQueue: q, workflowId: 'saga-gate-i', workflowExecutionTimeout: '2 minutes',
+      args: [{ machine: 'saga', oldDir: v1, newDir: v2, toBuildId: w2.buildId, fromBuildId: w1.buildId, onVersionChange: true }],
+    });
+    assert.equal(report.runs, 1);
+    await setCurrent(w2.buildId);
+    await env.client.workflow.execute('PolyflowGateWorkflow', { taskQueue: q, workflowId: 'saga-gate-i-wake', workflowExecutionTimeout: '2 minutes', args: [{ machine: 'saga', phase: 'wake' }] });
+    const g = env.client.workflow.getHandle(workflowId);
+    const out = await g.result();
+    // The bank step ran once, its completion was stepped on v1, and the run
+    // (no longer in the state the gate vetted) stayed there: opened, no KYC.
+    assert.equal(calls.length, 1, `addBankAccount invoked ${calls.length} time(s)`);
+    assert.equal(out.state.phase, 'opened');
+    assert.equal((await g.describe()).runId, firstRun, 'no hand-over: the run moved on');
+    const journal = await g.query('polyflow.journal');
+    assert.ok(journal.some((j) => j.stepKind === 'migration-stale'), 'the stale migration is on the record');
+    assert.ok(!scheduled(await g.fetchHistory()).includes('addKycCheck'));
+    const { events } = sink.read({ ns: 'default', wf: workflowId, run: firstRun });
+    assert.ok(verifyChain(events).ok);
+    assert.equal(events.filter((e) => e.kind === 'effect' && e.body.activityType === 'addBankAccount').length, 1);
+  } finally {
+    w1.worker.shutdown(); w2.worker.shutdown();
+    await Promise.allSettled([w1.running, w2.running]);
+  }
+});
+
+test('(j) a person CANCELs the saga past its first steps: what succeeded is compensated, last first', async () => {
+  const gate = { open: false };
+  const w = await worker('saga-j', {
+    ...sample,
+    addBankAccount: async (params) => {
+      const { Context } = await import('@temporalio/activity');
+      while (!gate.open) { Context.current().heartbeat(); await Context.current().sleep(100); }
+      return sample.addBankAccount(params);
+    },
+  });
+  const out = await w.runUntil(async () => {
+    const { handle } = await start('saga-j', COMMAND('saga-j-1'));
+    await until(async () => (await handle.query('polyflow.state')).state.phase === 'adding_bank', 'adding_bank');
+    // STOP is refused here: a step succeeded that a stop would leave standing.
+    const stop = await handle.executeUpdate('polyflow.propose', { args: [{ action: 'STOP', actor: { id: 'ops', roles: ['human'] } }] }).then(() => null, (e) => `${e.message} ${e.cause?.message ?? ''}`);
+    assert.match(stop, /nothing-to-stop/);
+    const r = await handle.executeUpdate('polyflow.propose', { args: [{ action: 'CANCEL', actor: { id: 'ops', roles: ['human'] } }] });
+    assert.equal(r.stepKind, 'accepted');
+    return handle.result();
+  });
+  gate.open = true;
+  assert.deepEqual([out.state.phase, out.state.failedStep, out.state.reason], ['compensated', 'addBankAccount', 'cancelled']);
+  assert.deepEqual(await steps('polyflow/saga/saga-j-1'), ['createAccount', 'addAddress', 'addClient', 'addBankAccount', 'removeClient', 'clearPostalAddresses']);
 });

@@ -304,8 +304,10 @@ An undeclared kind, or a mapper that throws, poisons the run. Order ids are
     "onSuccess":   { "action": "DRAFT_READY" },
     "onFailure":   { "action": "TICKETS_FAILED" },
     "onExhausted": { "action": "TICKETS_FAILED", "data": { "reason": "api-error" } },
-    "retry": { "maxAttempts": 3, "baseMs": 1000, "timeoutMs": 120000 } } } }
+    "retry": { "maxAttempts": 3, "baseMs": 1000, "timeoutMs": 120000, "heartbeatMs": 30000 } } } }
 ```
+
+`retry.heartbeatMs` (optional) is the activity's heartbeat timeout; an order that parks (a person's) should set it, since it also bounds how soon a cancellation reaches the activity (the SDK throttles heartbeats to 80% of it, 30 s without one).
 
 Completion data: on success the result's fields (a scalar result carries
 none); on permanent failure `{ reason: message }`; on exhaustion

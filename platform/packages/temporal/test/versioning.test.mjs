@@ -112,10 +112,10 @@ test('a gated run waits on v1, and continues as new onto v2 when v2 becomes curr
     assert.equal(woke.woken, 1);
 
     await until(async () => (await g.describe()).runId !== firstRun, 'the hand-over');
-    const d = await g.describe();
-    const now = d.raw.workflowExecutionInfo?.versioningInfo;
-    const on = now?.deploymentVersion?.buildId ?? now?.version?.split('.').pop() ?? null;
-    assert.equal(on, w2.buildId, `the next execution runs on v2 (versioning info: ${JSON.stringify(now)})`);
+    // The server reports the transition to v2 before it completes (`versionTransition`
+    // set, `deploymentVersion` still v1): wait for the new execution to be ON v2.
+    const buildOf = (d) => { const now = d.raw.workflowExecutionInfo?.versioningInfo; return now?.deploymentVersion?.buildId ?? now?.version?.split('.').pop() ?? null; };
+    await until(async () => buildOf(await g.describe()) === w2.buildId, `the next execution to run on v2 (last seen: ${JSON.stringify((await g.describe()).raw.workflowExecutionInfo?.versioningInfo)})`);
     const s = await until(async () => { const x = await g.query('polyflow.state'); return x.orders.length ? x : null; }, 'the carried order');
     assert.equal(s.state.briefState, 'review', 'the migrated state carried over');
     assert.equal(s.certificate.buildId, w2.buildId, 'answered by the v2 machine');

@@ -85,6 +85,9 @@
     },
     "STOP": {
       "dataFields": {}
+    },
+    "CANCEL": {
+      "dataFields": {}
     }
   },
   "dataDomain": {
@@ -156,7 +159,8 @@
         "compensation-failed"
       ]
     },
-    "STOP": {}
+    "STOP": {},
+    "CANCEL": {}
   },
   "terminalKey": "phase",
   "terminalStates": [
@@ -178,6 +182,12 @@
       "note": "A forward step's failure compensates the steps that succeeded before it, last first: a client failure clears the address; a bank failure removes the client, then clears the address. An account or address failure has nothing to compensate.",
       "whenState": "adding_client | adding_bank",
       "whenAction": "CLIENT_FAILED | BANK_FAILED"
+    },
+    {
+      "name": "stop-or-cancel",
+      "note": "STOP ends a run that has nothing to undo (idle, creating the account, adding the address: those steps register no compensation upstream either). Once a step succeeded, a person CANCELs instead: the run compensates what succeeded, last first, and ends compensated with reason 'cancelled'.",
+      "whenState": "idle | creating_account | adding_address (STOP); adding_client | adding_bank (CANCEL)",
+      "whenAction": "STOP | CANCEL"
     }
   ],
   "noOpRule": "An action that does not apply in the current state is reject(reason) - an observable no-op with post == pre."

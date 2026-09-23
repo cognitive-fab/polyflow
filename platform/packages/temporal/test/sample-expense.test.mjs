@@ -47,7 +47,7 @@ const human = { id: 'manager', roles: ['human'] };
 async function worker(taskQueue, plugin = new PolyflowPlugin({ sink: memorySink(), machines: { expense: MACHINE }, allowUncertified: true })) {
   return Worker.create({
     connection: env.nativeConnection, taskQueue, workflowsPath: join(SAMPLE, 'src', 'workflows.mjs'), activities: orders, plugins: [plugin],
-    maxCachedWorkflows: 0, bundlerOptions: { logger: quiet },
+    maxCachedWorkflows: 0, bundlerOptions: { logger: quiet }, defaultHeartbeatThrottleInterval: '200ms', maxHeartbeatThrottleInterval: '200ms',
   });
 }
 const start = (taskQueue, expenseId) => startGoverned(env.client, { descriptor, input: { expenseId }, taskQueue, workflowExecutionTimeout: '60s' });
