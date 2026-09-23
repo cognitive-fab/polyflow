@@ -1,10 +1,21 @@
 {
   "source": "samples-python@4e2f01e",
-  "root": "openai_agents/customer_service",
+  "root": ".",
   "files": {
-    "openai_agents/customer_service/workflows/customer_service_workflow.py": { "identical": true },
-    "openai_agents/customer_service/customer_service.py": { "identical": false, "why": "the two inline @function_tools are served by the Airline MCP server; agents, handoffs and context unchanged" },
-    "openai_agents/customer_service/run_worker.py": { "identical": false, "why": "temporalio.contrib import path (released SDK), the MCP server provider, and the PolyflowPlugin line" },
-    "openai_agents/customer_service/run_customer_service_client.py": { "identical": false, "why": "temporalio.contrib import path (released SDK) only" }
+    "openai_agents/customer_service/workflows/customer_service_workflow.py": {
+      "identical": true
+    },
+    "openai_agents/customer_service/customer_service.py": {
+      "identical": false,
+      "why": "the two inline @function_tools are served by the Airline MCP server; the agents' instructions and handoffs are unchanged, the context type stays but the tools no longer write it"
+    },
+    "openai_agents/customer_service/run_worker.py": {
+      "identical": false,
+      "why": "temporalio.contrib import path (released SDK), the MCP server provider, and the PolyflowPlugin line"
+    },
+    "openai_agents/customer_service/run_customer_service_client.py": {
+      "identical": false,
+      "why": "temporalio.contrib import path (released SDK) only"
+    }
   }
 }

@@ -139,8 +139,10 @@ export function makeInterceptors(config, makeGovernor = observeOnly) {
     };
 
     /**
-     * Carry everything still pending, looping because events can be appended
-     * while a flush is in flight (a late activity result, a signal — review L4).
+     * Carry everything still pending, looping in case one flush carries less
+     * than everything (the closure is out and `closed` is set before this runs,
+     * so nothing lands during the flush; a late result or signal is refused or
+     * dropped, never recorded after the closure).
      * Never throws: bookkeeping must not change the workflow's outcome (D2).
      */
     const drainAll = async () => {
@@ -156,8 +158,8 @@ export function makeInterceptors(config, makeGovernor = observeOnly) {
 
     /** End this execution's part of the record. */
     const close = async (outcome) => {
-      // One flush carries the trailing events and the closure together; the
-      // loop in drainAll picks up anything that lands while it is in flight.
+      // One flush carries the trailing events and the closure together. The
+      // closure is this execution's last event: from here on nothing is recorded.
       append('closure', { outcome });
       closed = true;
       const carried = await drainAll();

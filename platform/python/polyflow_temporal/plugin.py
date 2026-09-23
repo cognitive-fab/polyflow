@@ -250,10 +250,10 @@ class _RunRef:
 
     A signal or Update handler may run BEFORE the workflow function in the
     first workflow task (the sample `openai_agents/customer_service` is driven
-    entirely by Updates), so the chain cannot wait for execute_workflow to
-    exist: a fresh execution creates it on first use. A continued execution
-    cannot (its head arrives in execute_workflow's headers), so its handlers
-    wait for the workflow function to start, which happens in the same task.
+    entirely by Updates), so the chain cannot wait for execute_workflow: it is
+    created on first use, from the execution's headers, which carry the
+    handed-over head after a Continue-as-New (workflow.info().headers holds
+    them from the first activation). Handler ordering is Temporal's, unchanged.
     """
 
     def __init__(self, config: dict):
@@ -262,15 +262,26 @@ class _RunRef:
 
     def get(self) -> _Run:
         if self.run is None:
-            if temporalio.workflow.info().continued_run_id:
-                raise RuntimeError("polyflow: an effect before the continued execution received its head")
-            self.run = _Run(self._config, None)
+            info = temporalio.workflow.info()
+            self.run = _Run(self._config, _resume_from(info.headers, self._config))
         return self.run
 
-    async def started(self) -> _Run:
-        if self.run is None and temporalio.workflow.info().continued_run_id:
-            await temporalio.workflow.wait_condition(lambda: self.run is not None)
-        return self.get()
+
+def _resume_from(headers, config: dict) -> dict | None:
+    """The head handed over by Continue-as-New, opened; None for a fresh chain.
+
+    Accepted only from a real Continue-as-New (a client could otherwise start a
+    run mid-chain with no admission). A sealed head that does not open
+    (tampered, transplanted from another run, unknown key) fails the workflow
+    TASK, as in TS: it never silently restarts the chain and resets the guard."""
+    info = temporalio.workflow.info()
+    if not (info.continued_run_id and (headers or {}).get(HEAD_HEADER) is not None):
+        return None
+    try:
+        resume = _converter().from_payload(headers[HEAD_HEADER], dict)
+    except Exception:  # noqa: BLE001 — an unreadable hand-over starts a fresh chain
+        return None
+    return open_header(resume, config.get("header_keys") or {}, expect={"runId": info.continued_run_id, "purpose": "head"})
 
 
 class _Outbound(WorkflowOutboundInterceptor):
@@ -433,24 +444,8 @@ def _make_inbound(config: dict):
             await self._flush(run)
 
         async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
-            info = temporalio.workflow.info()
-            resume = None
-            # Accept a handed-over head only from a real Continue-as-New: a client
-            # could otherwise start a run mid-chain with no admission.
-            if info.continued_run_id and (input.headers or {}).get(HEAD_HEADER) is not None:
-                try:
-                    resume = _converter().from_payload(input.headers[HEAD_HEADER], dict)
-                except Exception:  # noqa: BLE001 — an unreadable hand-over starts a fresh chain
-                    resume = None
-                if resume is not None:
-                    # A sealed head that does not open (tampered, transplanted from
-                    # another run, unknown key) fails the workflow TASK, as in TS: it
-                    # never silently restarts the chain and resets the guard.
-                    resume = open_header(resume, config.get("header_keys") or {},
-                                         expect={"runId": info.continued_run_id, "purpose": "head"})
-            # A fresh execution's handlers may already have created the chain.
-            run = self._run_ref.run if resume is None and self._run_ref.run is not None else _Run(config, resume)
-            self._run_ref.run = run
+            # A handler may have created the chain already (first task); else now.
+            run = self._run_ref.get()
             try:
                 result = await super().execute_workflow(input)
             except temporalio.workflow.ContinueAsNewError:
@@ -469,7 +464,7 @@ def _make_inbound(config: dict):
             return result
 
         async def handle_signal(self, input: HandleSignalInput) -> None:
-            run = await self._run_ref.started()
+            run = self._run_ref.get()
             run.append("proposal", {"source": "signal", "action": input.signal, "dataDigest": _args_digest(input.args)})
             if run.guard:
                 run.state = run.guard.signal(run.state, input.signal, _now_ms())
@@ -481,7 +476,7 @@ def _make_inbound(config: dict):
                 raise
 
         async def handle_update_handler(self, input: HandleUpdateInput) -> Any:
-            run = await self._run_ref.started()
+            run = self._run_ref.get()
             try:
                 return await super().handle_update_handler(input)
             except temporalio.workflow.ContinueAsNewError:

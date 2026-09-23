@@ -13,8 +13,8 @@ is declared in [`upstream.json`](upstream.json) and checked mechanically by
 | File | Status |
 |---|---|
 | `workflows/customer_service_workflow.py` — the workflow, its Update handler and validator, continue-as-new | **byte-identical** |
-| `customer_service.py` — agents, handoffs, context | changed in one place: the two inline `@function_tool`s are now tools of the Airline MCP server (`mcp_servers=[airline_tools()]`) |
-| `run_worker.py` | released-SDK import path, the MCP server provider, and one line: `plugins=[PolyflowPlugin(level="guard", policy=..., sink=...)]` |
+| `customer_service.py` — agents, handoffs, context | changed in its tool wiring only: the two inline `@function_tool`s are now tools of the Airline MCP server (`mcp_servers=[airline_tools()]`); the agents' instructions and handoffs are untouched, and the context type stays, though the tools no longer write it |
+| `run_worker.py` | released-SDK import path, the MCP server provider, and the plugin: `plugins=[PolyflowPlugin(level="guard", policy=..., sink=...)]` |
 | `run_customer_service_client.py` | released-SDK import path only |
 | `airline_server.py`, `policy.json`, `demo.py` | new |
 
@@ -43,12 +43,12 @@ handoff set) is now the booking the server holds, so the natural read is
 | `…:faq_lookup_tool` | `faq` |
 | `…:get_booking` | `read`, labelled `reads-private` |
 | `…:update_seat` | `booking`, **irreversible** |
-| `…:cancel_booking` | not declared: routed and undeclared is always refused |
+| `…:cancel_booking` | the server has it; the operator never granted it to this agent. Not declared: routed and undeclared is always refused |
 
 | Rule | What it says |
 |---|---|
 | `booking-after-lookup` (`requires-prior`) | a seat change needs a booking read that succeeded; each read licenses one change |
-| `one-seat-change` (`at-most`, n=1) | one seat change per conversation; a second needs a person |
+| `one-seat-change` (`at-most`, n=1) | one seat change per conversation without a person — the operator's limit for this demo. In Python the rule refuses; the TypeScript plugin would park the call for a person instead |
 | `model-rate` (`rate`, 30/min) | a looping agent is stopped before it costs |
 
 `unlabelled: deny` — anything the policy does not name is refused.
@@ -60,8 +60,10 @@ cd platform/python
 python examples/temporal_samples/customer_service/demo.py    # needs node and a Temporal dev-server download; no OpenAI key
 ```
 
-The model is scripted with the SDK's own `ResponseBuilders`, so the conversation
-is the one a hallucinating or looping agent has:
+The model is scripted with the SDK's own `ResponseBuilders` to hit each rule
+once. The agent's prompt is upstream's and knows none of the rules; that is
+the point. The policy holds whatever the prompt says, and the refusal, read as
+the tool's output, is what tells the agent the order of things:
 
 ```
 User: ABC123, seat 12A please.
@@ -82,8 +84,8 @@ refusal with its witness and the closure are in one signed chain that the
 TypeScript `polyflow verify` accepts:
 
 ```
-  chain       intact through seq 91
-  signatures  22 head(s), 22 trusted and anchored, signed through seq 91
+  chain       intact through seq <n>
+  signatures  <k> head(s), <k> trusted and anchored, signed through seq <n>
   closure     present — the record is finished
   OK — consistent, closed and signed through its last event.
 ```
