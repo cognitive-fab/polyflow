@@ -53,6 +53,7 @@ In addition:
 | `packages/cli` | `polyflow verify \| export \| keygen \| policy \| admit \| vet` |
 | `packages/gateway` | An MCP server offering polyflow's six unchanged work-order tools plus `workflow_claim`, over governed runs on a Temporal namespace |
 | `packages/service` | The optional governance service: a sink with tamper alerts, verification, run reports, the evidence pack, metrics and a console |
+| `packages/verify` | The verifier, the sinks and signed heads, rebuilding a ledger from a Temporal history: the Apache-2.0 half anyone may run (`polyflow verify` calls into it). |
 | `python/polyflow_temporal` | The Python kernel port and the Python plugin (G0/G1). It is pinned byte for byte to TypeScript by [`conformance/`](conformance/). [`python/examples/openai_agents`](python/examples/openai_agents/) runs an unmodified OpenAI Agents SDK agent under G1, with MCP tools classified by name. |
 | `python/polyflow_langgraph` | The second engine binding (plan P10), at G0/G1: `govern(tools, ...)` records and guards an unmodified LangGraph agent's tool calls with the same ledger and guard. It imports no `temporalio`. See [`06-second-engine-langgraph.md`](../docs/platform/research/06-second-engine-langgraph.md). |
 | `examples/` | `customer-brief` (v1 and v2), `refund-triage` (Jev); [`temporal_samples/`](examples/temporal_samples/) rewrites Temporal's official `expense` and `saga` samples as certified machines (and [`python/examples/temporal_samples/`](python/examples/temporal_samples/) the `customer_service` agent at G1), with `upstream/` pinning the sources and `check.mjs` asserting which files stayed byte-identical |
@@ -103,3 +104,7 @@ cd platform && npm install
 - The S3 test is the re-fire mechanism, scripted. Replicating the
   FINDINGS-phase3 study with a real model is open work, and so is the pass^k
   harness's agent: it is a seeded stochastic script, not a model.
+
+## Licence
+
+Source-available, not open source: the plugin, gates, CLI, gateway, service and Python package are under the Business Source License 1.1 (production use inside your own organisation is granted; each version converts to Apache-2.0 four years after publication); the kernel and the verifier are Apache-2.0, so a record is checkable by anyone. [`LICENSING.md`](LICENSING.md) says which part is under which licence and why.

@@ -8,7 +8,7 @@
 // NOT show as plainly as what it does. Empty is never green (doctrine 2): a
 // control over nothing is `holds: null`, with the reason, never `true`.
 
-import { verifyBundle } from '@cognitive-fab/polyflow-temporal';
+import { verifyBundle } from '@cognitive-fab/polyflow-verify';
 
 const DISCLOSURE = 'Consistency checks, not proofs. A verified ledger shows the record was not altered after it was signed and is consistent with itself; it does not show the world matched the record. Approvals marked unverified name a principal the caller asserted.';
 

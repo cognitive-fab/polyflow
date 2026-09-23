@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { join, basename } from 'node:path';
 import {
   verifyBundle, verifyThread, readJsonl, ledgerFromHistory, fileSink, generateSigningKey,
-} from '@cognitive-fab/polyflow-temporal';
+} from '@cognitive-fab/polyflow-verify'; // verify, export, keygen: the Apache-2.0 half
 import { admit } from './admit.mjs';
 import { admitPolicy, PolicyError } from '@cognitive-fab/polyflow-kernel';
 import { vet } from '@cognitive-fab/polyflow-temporal';

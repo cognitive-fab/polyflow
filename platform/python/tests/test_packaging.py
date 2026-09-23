@@ -90,11 +90,11 @@ def test_no_fetch_names_the_command_and_the_env_var(monkeypatch, tmp_path):
 
 def test_the_package_declares_its_licence_and_ships_the_text():
     project = PYPROJECT["project"]
-    assert project["license"] == "Apache-2.0", "PEP 639 licence expression (L8)"
+    assert project["license"] == "BUSL-1.1", "PEP 639 licence expression (L8); BUSL since the P11 relicensing"
     assert project["license-files"] == ["LICENSE"]
     text = (HERE / "LICENSE").read_text(encoding="utf-8")
-    assert "Apache License" in text and "Version 2.0" in text
-    assert text == (HERE.parents[1] / "LICENSE").read_text(encoding="utf-8"), "a copy of the repository's LICENSE"
+    assert "Business Source License 1.1" in text and "Cognitive Fab LLC" in text and "Change License:       Apache License, Version 2.0" in text
+    assert "polyflow-temporal (the Python package" in text, "the Licensed Work parameter names this package"
 
 
 def test_mpl_licensed_dependencies_stay_in_the_openai_agents_extra():

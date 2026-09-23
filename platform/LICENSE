@@ -9,10 +9,12 @@ Parameters
 
 Licensor:             Cognitive Fab LLC
 
-Licensed Work:        @cognitive-fab/polyflow-cli, version 0.1.0 or later: the
-                      polyflow command. Its verify, export and keygen commands
-                      are thin calls into @cognitive-fab/polyflow-verify, which
-                      is licensed separately under the Apache License 2.0.
+Licensed Work:        the Polyflow for Temporal platform in this directory and its
+                      subdirectories, version 0.1.0 or later, excluding
+                      packages/kernel and packages/verify (Apache License
+                      2.0, see their LICENSE files) and examples/upstream and
+                      examples/temporal_samples (MIT, Temporal Technologies
+                      Inc., see the NOTICE files there).
                       The Licensed Work is (c) 2026 Cognitive Fab LLC.
 
 Additional Use Grant: You may make production use of the Licensed Work within

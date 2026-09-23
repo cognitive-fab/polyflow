@@ -12,9 +12,10 @@
   "dependencies": {
     "@cognitive-fab/polyflow-kernel": "0.1.0",
     "@cognitive-fab/polyflow-temporal": "0.1.0",
+    "@cognitive-fab/polyflow-verify": "0.1.0",
     "@cognitive-fab/polygraph": "^8.3.0"
   },
-  "license": "Apache-2.0",
+  "license": "BUSL-1.1",
   "files": [
     "src",
     "bin",

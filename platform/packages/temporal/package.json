@@ -1,7 +1,7 @@
 {
   "name": "@cognitive-fab/polyflow-temporal",
   "version": "0.1.0",
-  "description": "Polyflow for Temporal: a worker plugin that records, guards and governs what agents on Temporal are allowed to do.",
+  "description": "Polyflow for Temporal: a worker plugin that records, guards, governs and versions what agents on Temporal are allowed to do. Business Source License 1.1 (production use inside your own organisation is granted); the verifier is Apache-2.0 in @cognitive-fab/polyflow-verify.",
   "type": "module",
   "main": "src/index.mjs",
   "exports": {
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@cognitive-fab/polyflow-kernel": "0.1.0",
+    "@cognitive-fab/polyflow-verify": "0.1.0",
     "@cognitive-fab/polygraph": "^8.3.0",
     "@cognitive-fab/sam-pattern": "^2.2.1",
     "@temporalio/activity": "^1.24.0",
@@ -25,7 +26,7 @@
   "devDependencies": {
     "@temporalio/testing": "^1.24.0"
   },
-  "license": "Apache-2.0",
+  "license": "BUSL-1.1",
   "files": [
     "src",
     "LICENSE"

@@ -3,7 +3,7 @@ name = "polyflow-temporal"
 version = "0.1.0"
 description = "Polyflow for Temporal: a worker plugin that records and guards what agents on Temporal are allowed to do."
 requires-python = ">=3.10"
-license = "Apache-2.0"
+license = "BUSL-1.1"
 license-files = ["LICENSE"]
 dependencies = ["temporalio>=1.33"]
 

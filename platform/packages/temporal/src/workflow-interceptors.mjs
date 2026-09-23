@@ -32,7 +32,7 @@ import {
 } from '@temporalio/workflow';
 import { defaultPayloadConverter } from '@temporalio/common';
 import { openLedger, digest, redact, verifyPrincipal, principalClaims, sealHeader, openHeader } from '@cognitive-fab/polyflow-kernel';
-import { LEDGER_HEADER, HEAD_HEADER, FLUSH_ACTIVITY } from './constants.mjs';
+import { LEDGER_HEADER, HEAD_HEADER, FLUSH_ACTIVITY } from '@cognitive-fab/polyflow-verify/constants';
 import { registerGovernor, forgetGovernor, governorOf } from './governor-registry.mjs';
 
 export { LEDGER_HEADER, HEAD_HEADER, FLUSH_ACTIVITY };
