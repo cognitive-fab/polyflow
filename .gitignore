@@ -9,3 +9,13 @@ spike/
 docs/linkedin-*
 docs/x-post-*
 docs/agent-driven-cicd.html
+
+# platform test scratch
+platform/examples/.tmp-*
+platform/packages/*/workflow-bundle-*.js
+
+platform/python/.venv/
+**/__pycache__/
+
+# fetched at install time (pinned, sha256-checked), not committed
+platform/python/polyflow_temporal/vendor/quickjs-wasi/quickjs.wasm
