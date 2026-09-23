@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "What keeps the record confidential and tamper-evident",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "What keeps the record confidential and tamper-e…",
+        "focus": [
+          "sealed",
+          "ledger"
+        ],
+        "note": "Confidentiality: with a worker-held data key the interceptor seals headers with ChaCha20-Poly1305 under a keyed synthetic nonce, and the ex…"
+      },
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "interceptor",
+          "ledger",
+          "sealed"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      },
+      {
+        "id": "worker",
+        "label": "Worker process (Node)",
+        "focus": [
+          "exporter",
+          "sinks"
+        ],
+        "note": "Runs with the operator's credentials and does I/O; nothing here is replay-constrained, and nothing here can change a verdict"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "interceptor",
+      "type": "backend",
+      "label": "Workflow interceptor",
+      "pos": [
+        60,
+        88
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "outbound + inbound",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "sealed",
+      "type": "backend",
+      "label": "Sealed headers",
+      "pos": [
+        380,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "ChaCha20-Poly1305",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/sealed-header.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/aead.mjs"
+        }
+      ]
+    },
+    {
+      "id": "ledger",
+      "type": "backend",
+      "label": "Ledger chain",
+      "pos": [
+        380,
+        129
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "sha256 over RFC 8785",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/ledger.mjs"
+        }
+      ]
+    },
+    {
+      "id": "exporter",
+      "type": "backend",
+      "label": "Exporter",
+      "pos": [
+        60,
+        248
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "activity interceptor",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/plugin.mjs",
+          "label": "exporter()"
+        }
+      ]
+    },
+    {
+      "id": "sinks",
+      "type": "database",
+      "label": "Sinks",
+      "pos": [
+        700,
+        248
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "file, memory, http",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/sink.mjs"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "interceptor",
+        "ledger",
+        "sealed"
+      ],
+      "pad": 20
+    },
+    {
+      "kind": "region",
+      "label": "Worker process (Node)",
+      "wraps": [
+        "exporter",
+        "sinks"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "interceptor",
+      "to": "ledger",
+      "label": "append events",
+      "labelAt": [
+        343,
+        98
+      ]
+    },
+    {
+      "from": "interceptor",
+      "to": "sealed",
+      "label": "seal the header",
+      "labelAt": [
+        295,
+        58
+      ]
+    },
+    {
+      "from": "exporter",
+      "to": "sinks",
+      "label": "write, signed",
+      "labelAt": [
+        295,
+        258
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "Confidentiality: with a worker-held data key the interceptor seals headers with ChaCha20-Poly1305 under a keyed synthetic nonce, and the exporter refuses plaintext",
+        "Tamper evidence: every event hashes its predecessor, the exporter signs verified heads, sinks refuse conflicts and forks whole, and the service raises alerts"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "Verified principals, which are question seven, and the service's tenancy and rate limits",
+        "Connected but out of scope: Customer workflow, Rule kernel, Temporal server, Verified principals, Service API, polyflow CLI"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Constraints",
+      "items": [
+        "Payload codecs do not run on headers — the SDK visits payloads with skipHeaders, so without a worker-held data key the ledger sits in history in plaintext"
+      ]
+    }
+  ]
+}

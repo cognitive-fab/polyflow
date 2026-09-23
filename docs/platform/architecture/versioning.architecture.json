@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How a new version reaches the live fleet",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "answer",
+        "label": "How a new version reaches the live fleet",
+        "focus": [
+          "gate-activities",
+          "vet"
+        ],
+        "note": "The gate vets the new version against every distinct live state with polyvers before promotion and tells each moving run to wait; after the…"
+      },
+      {
+        "id": "ci",
+        "label": "CI and operator tooling",
+        "focus": [
+          "polygraph",
+          "certificates",
+          "vet"
+        ],
+        "note": "Runs before deployment and produces signed artefacts; a worker trusts only what it can verify against a public key"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "gate-activities",
+      "type": "backend",
+      "label": "Gate workflows",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "vet, apply, wake, policy",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/gate-workflow.mjs"
+        },
+        {
+          "path": "platform/packages/temporal/src/gate-activities.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/policy-ramp.mjs"
+        }
+      ]
+    },
+    {
+      "id": "vet",
+      "type": "backend",
+      "label": "vet",
+      "pos": [
+        380,
+        207
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "per distinct live state",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/vet.mjs"
+        }
+      ]
+    },
+    {
+      "id": "polygraph",
+      "type": "external",
+      "label": "polygraph / polyvers",
+      "pos": [
+        700,
+        167
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "@cognitive-fab/polygraph"
+    },
+    {
+      "id": "certificates",
+      "type": "backend",
+      "label": "Certificates",
+      "pos": [
+        700,
+        248
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "artefact digests, buildId",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/certificates.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/certificate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "governed",
+      "type": "backend",
+      "label": "GovernedWorkflow",
+      "pos": [
+        380,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "hosts a machine",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/governed-workflow.mjs"
+        }
+      ]
+    },
+    {
+      "id": "temporal",
+      "type": "external",
+      "label": "Temporal server",
+      "pos": [
+        700,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "history, task queues"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "CI and operator tooling",
+      "wraps": [
+        "polygraph",
+        "certificates",
+        "vet"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "gate-activities",
+      "to": "vet",
+      "label": "vet the fleet",
+      "labelAt": [
+        295,
+        58
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "vet",
+      "to": "polygraph",
+      "label": "polyvers check · spawn",
+      "labelAt": [
+        615,
+        177
+      ]
+    },
+    {
+      "from": "vet",
+      "to": "certificates",
+      "label": "new version admitted?",
+      "labelAt": [
+        682,
+        243
+      ]
+    },
+    {
+      "from": "gate-activities",
+      "to": "governed",
+      "label": "migrate, wake · gRPC",
+      "labelAt": [
+        360,
+        124
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "gate-activities",
+      "to": "temporal",
+      "label": "list the fleet · gRPC",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          135,
+          16
+        ],
+        [
+          775,
+          16
+        ]
+      ],
+      "labelAt": [
+        455,
+        27
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "governed",
+      "to": "temporal",
+      "label": "Continue-as-New · event",
+      "labelAt": [
+        615,
+        58
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "The gate vets the new version against every distinct live state with polyvers before promotion and tells each moving run to wait",
+        "after the Worker Controller promotes, a wake phase lets each run Continue-as-New onto the new version, carrying its migrated state and open orders",
+        "Any run that would have to be pinned fails the gate"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "The policy ramp gate for G1 workflows, which uses the same activities over guard states instead of machine states",
+        "Connected but out of scope: Workflow interceptor, Exporter, polyflow CLI, Admission, PolyflowPlugin, SAM machine host"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Doctrine",
+      "items": [
+        "A run never replays across versions — it hands its state to a new execution, migrated by code polyvers validated over that very state; the old and new code never share a history",
+        "The certificate is the version — the buildId is a digest of what was certified, and under Worker Versioning the worker runs under that build id or not at all"
+      ]
+    }
+  ]
+}

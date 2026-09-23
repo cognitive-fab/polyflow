@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How judgement enters a machine",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "governed",
+          "machine-host"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "governed",
+      "type": "backend",
+      "label": "GovernedWorkflow",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "hosts a machine",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/governed-workflow.mjs"
+        }
+      ]
+    },
+    {
+      "id": "machine-host",
+      "type": "backend",
+      "label": "SAM machine host",
+      "pos": [
+        380,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "SAM v2 strict",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/machine-host.mjs"
+        }
+      ]
+    },
+    {
+      "id": "jev-activity",
+      "type": "backend",
+      "label": "Judge activity",
+      "pos": [
+        380,
+        234
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "polyflow.observe",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/jev.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/observe.mjs"
+        }
+      ]
+    },
+    {
+      "id": "jev",
+      "type": "external",
+      "label": "Jev (typesafe.ai)",
+      "pos": [
+        700,
+        234
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "SystemOne noul"
+    },
+    {
+      "id": "machine-dir",
+      "type": "database",
+      "label": "Machine directory",
+      "pos": [
+        60,
+        234
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "descriptor, contract, mapper",
+      "sources": [
+        {
+          "path": "platform/examples/customer-brief/polyflow.workflow.json"
+        },
+        {
+          "path": "platform/examples/customer-brief/effects.cjs"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "governed",
+        "machine-host"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "governed",
+      "to": "machine-host",
+      "label": "step the machine",
+      "labelAt": [
+        295,
+        63
+      ]
+    },
+    {
+      "from": "governed",
+      "to": "jev-activity",
+      "label": "order a judgement",
+      "labelAt": [
+        295,
+        97
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "jev-activity",
+      "to": "jev",
+      "label": "ask the battery · HTTPS",
+      "labelAt": [
+        615,
+        249
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "A machine orders an observation like any other effect",
+        "The activity sends only the battery's declared source fields, redacted, to Jev and maps each probability through calibrated bands into true, false or no fact",
+        "The facts are recorded as the activity result, so replay never calls the judge again"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "Human escalation, which handles 'no fact' when the contract says a person decides",
+        "Connected but out of scope: Admission, PolyflowPlugin, Workflow interceptor, Verified principals, MCP gateway, Gate workflows"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Doctrine",
+      "items": [
+        "A judge may answer with no fact at all — a probability between the calibrated bands is abstention, never a default false; the machine's contract decides what unknown does, typically a person"
+      ]
+    }
+  ]
+}

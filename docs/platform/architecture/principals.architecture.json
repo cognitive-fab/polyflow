@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Who may approve, report and claim",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cognitive-fab/polyflow",
+      "revision": "f34767c0842708840d9b86c46cb178bfa808277a"
+    },
+    "views": [
+      {
+        "id": "isolate",
+        "label": "Workflow isolate",
+        "focus": [
+          "interceptor",
+          "principals",
+          "governed"
+        ],
+        "note": "Everything inside is pure, deterministic JavaScript with no I/O: it produces the same verdict on every replay of the same history"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "approver",
+      "type": "external",
+      "label": "Approver",
+      "pos": [
+        60,
+        48
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "signs principal tokens",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/principals.mjs",
+          "label": "signPrincipal, run outside the workflow"
+        }
+      ]
+    },
+    {
+      "id": "interceptor",
+      "type": "backend",
+      "label": "Workflow interceptor",
+      "pos": [
+        700,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "outbound + inbound",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/workflow-interceptors.mjs"
+        }
+      ]
+    },
+    {
+      "id": "governed",
+      "type": "backend",
+      "label": "GovernedWorkflow",
+      "pos": [
+        380,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "hosts a machine",
+      "sources": [
+        {
+          "path": "platform/packages/temporal/src/governed-workflow.mjs"
+        }
+      ]
+    },
+    {
+      "id": "principals",
+      "type": "backend",
+      "label": "Verified principals",
+      "pos": [
+        1020,
+        360
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "ed25519, action-bound",
+      "sources": [
+        {
+          "path": "platform/packages/kernel/src/principal.mjs"
+        },
+        {
+          "path": "platform/packages/kernel/src/ed25519.mjs"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "security",
+      "label": "MCP gateway",
+      "pos": [
+        60,
+        174
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "sublabel": "six unchanged tools",
+      "sources": [
+        {
+          "path": "platform/packages/gateway/src/temporal-polyflow.mjs"
+        },
+        {
+          "path": "src/mcp.mjs",
+          "label": "the MCP server and argument checks"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Workflow isolate",
+      "wraps": [
+        "interceptor",
+        "principals",
+        "governed"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "from": "interceptor",
+      "to": "principals",
+      "label": "verify the approver",
+      "labelAt": [
+        935,
+        375
+      ]
+    },
+    {
+      "from": "governed",
+      "to": "interceptor",
+      "label": "orders as activities",
+      "labelAt": [
+        615,
+        375
+      ]
+    },
+    {
+      "from": "governed",
+      "to": "principals",
+      "label": "who reports, claims",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          455,
+          466
+        ],
+        [
+          1095,
+          466
+        ]
+      ],
+      "labelAt": [
+        775,
+        466
+      ]
+    },
+    {
+      "from": "gateway",
+      "to": "governed",
+      "label": "start, report, claim · gRPC",
+      "labelAt": [
+        295,
+        189
+      ],
+      "variant": "security"
+    },
+    {
+      "from": "approver",
+      "to": "interceptor",
+      "label": "polyflow.approve · gRPC",
+      "fromSide": "top",
+      "toSide": "top",
+      "via": [
+        [
+          135,
+          30
+        ],
+        [
+          775,
+          30
+        ]
+      ],
+      "labelAt": [
+        455,
+        30
+      ],
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The short answer",
+      "items": [
+        "With a trust store, every state-changing Update carries an ed25519 token minted outside the workflow and verified inside it",
+        "The token is bound to one action: for an approval, the approval id, run, decision and arguments digest",
+        "A lifted token can only repeat what history already records"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not shown here",
+      "items": [
+        "The rules that decide whether an approval is needed, which are question two",
+        "Connected but out of scope: Customer workflow, Rule kernel, Ledger chain, Sealed headers, Temporal server, PolyflowPlugin"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "What it guarantees",
+      "items": [
+        "A principal token authorises one action — Temporal keeps Update arguments in history, so a token that only proved identity could be lifted and reused; binding the action makes a lifted token worthless"
+      ]
+    }
+  ]
+}
