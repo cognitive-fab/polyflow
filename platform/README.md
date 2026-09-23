@@ -51,6 +51,7 @@ In addition:
 | `packages/gateway` | An MCP server offering polyflow's six unchanged work-order tools plus `workflow_claim`, over governed runs on a Temporal namespace |
 | `packages/service` | The optional governance service: a sink with tamper alerts, verification, run reports, the evidence pack, metrics and a console |
 | `python/polyflow_temporal` | The Python kernel port and the Python plugin (G0/G1). It is pinned byte for byte to TypeScript by [`conformance/`](conformance/). [`python/examples/openai_agents`](python/examples/openai_agents/) runs an unmodified OpenAI Agents SDK agent under G1, with MCP tools classified by name. |
+| `python/polyflow_langgraph` | The second engine binding (plan P10), at G0/G1: `govern(tools, ...)` records and guards an unmodified LangGraph agent's tool calls with the same ledger and guard. It imports no `temporalio`. See [`06-second-engine-langgraph.md`](../docs/platform/research/06-second-engine-langgraph.md). |
 | `examples/` | `customer-brief` (v1 and v2), `refund-triage` (Jev) |
 
 ## Install (TypeScript worker)
