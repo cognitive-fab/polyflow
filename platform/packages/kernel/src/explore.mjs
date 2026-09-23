@@ -131,6 +131,19 @@ export function structuralChecks({ host, contract, descriptor = {}, maxStates, s
       name: 'stop-from-every-state', ok: noStop.length === 0,
       detail: noStop.length ? { states: noStop.slice(0, 5) } : { exceptions: unstoppable },
     });
+    // An exception is a claim about the machine, not a licence: a state
+    // declared unstoppable must refuse the stop, observably, or the reason in
+    // the certificate describes a stop that would have been accepted (P11
+    // sample 2 review, M6).
+    const stoppable = [...g.states].filter(([, s]) => !host.isTerminal(s) && excepted(s))
+      .filter(([, s]) => host.step(s, descriptor.stopAction, {}).stepKind === 'accepted')
+      .map(([, s]) => s);
+    if (Object.keys(unstoppable).length) {
+      items.push({
+        name: 'unstoppable-states-refuse-stop', ok: stoppable.length === 0,
+        detail: stoppable.length ? { states: stoppable.slice(0, 5) } : { exceptions: Object.keys(unstoppable) },
+      });
+    }
   } else if (descriptor.noStop) {
     // No STOP, accepted by name and with a reason (recorded in the certificate).
     items.push({ name: 'stop-from-every-state', ok: true, detail: { exceptions: { '*': descriptor.noStop } } });

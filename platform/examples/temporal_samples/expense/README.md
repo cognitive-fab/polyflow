@@ -21,11 +21,10 @@ declared in [`upstream.json`](upstream.json) and checked by
 
 ## What the sample could not say, and the certificate does
 
-Upstream, "no payment without approval" is one `if` in `workflows.ts`. Anyone
-holding the workflow id can send `approveSignal`; the signal carries no
-identity; a client bug that sends it twice, or a replay, is the workflow's
-problem. The port turns that into sentences admission proves over every path
-the contract's domain allows, and the certificate names:
+Upstream, "no payment without approval" is one `if` in `workflows.ts`, and
+`approveSignal` names nobody: who approved is not in the record. The port turns
+the property into sentences admission proves over every path the contract's
+domain allows, and the certificate names:
 
 ```
 guarantees: at-most-one-payment-per-path, no-payment-without-prior-approve,
@@ -42,12 +41,22 @@ At run time:
 
 - the approval request is an **order addressed to the `human` role** with a
   10-second window armed by the machine (upstream's default). It is answered by
-  `polyflow.propose { action: 'APPROVE' | 'REJECT', orderId, actor }` from an
-  actor holding the role, or, with a trust store, a verified principal. An
-  actor without the role, or a proposal naming no order, is refused before it
-  enters history;
+  `polyflow.propose { action: 'APPROVE' | 'REJECT', orderId, actor }`. The
+  actor and the decision go into the journal row and into the signed ledger as
+  a `proposal` event. Without the plugin's `principals` trust store the actor
+  is a *claim* the caller makes (recorded as unverified); with it, a token
+  signed for this one action. A caller without the role, or a proposal naming
+  no order, is refused at validation, before it enters history;
 - the workflow id is derived from the expense id (`polyflow/expense/<id>`), so
-  a second start **attaches** to the first run instead of paying twice;
+  a second start **attaches** to the first run and says so (upstream refuses a
+  duplicate id with an error while the first runs);
+- the request survives a worker restart: it is an order that stays open (the
+  parked activity is re-scheduled, up to `retry.maxAttempts`), and only when
+  the request itself cannot be kept up is the expense `rejected` with reason
+  `approver-unreachable`, never `rejected` as if a person had said no. The
+  manifest's `retry.timeoutMs` (1 h) must exceed the window the machine arms
+  (10 s here): a window longer than the activity's timeout would end in
+  `approver-unreachable` with a healthy approver;
 - `STOP` ends the run from any state but `paying` (declared unstoppable: a
   payment in flight would not be unpaid), calling off the parked request;
 - with `trust` on the worker (production), a machine whose bytes differ from
@@ -75,8 +84,11 @@ including the mutation and the byte-changed machine).
 
 - **The parked activity.** In worker mode a person's order is an activity that
   parks, heartbeating, until the run calls it off; it is the request's presence
-  on the worker, not the decision. With `externalMode`, orders are performed
-  outside the worker through the MCP gateway instead (reference manual §3.9).
+  on the worker, not the decision. It holds one activity slot per pending
+  approval for the whole window, and its cancellation reaches it on the next
+  heartbeat. With `externalMode`, orders are performed outside the worker
+  through the MCP gateway instead (reference manual §4 and §6), and nothing is
+  parked.
 - **Node 24** loads the sample's `activities.ts` as is (type stripping); no
   build step. The sample's server and clients are TypeScript with an enum, so
   they are JavaScript here.

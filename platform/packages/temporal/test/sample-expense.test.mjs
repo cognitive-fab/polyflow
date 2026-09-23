@@ -88,8 +88,10 @@ test('(b) a machine that pays without asking is refused by admission, by name', 
   assert.match(text, /payment-implies-approval-was-requested/);
 });
 
-test('(c) approved: the sample\'s activities run, payment once, the server says COMPLETED', async () => {
-  const w = await worker('exp-c');
+test('(c) approved: the sample\'s activities run, payment once, the server says COMPLETED, and who approved is on the record', async () => {
+  const sink = memorySink();
+  const w = await worker('exp-c', new PolyflowPlugin({ sink, machines: { expense: MACHINE }, allowUncertified: true }));
+  let journal;
   const out = await w.runUntil(async () => {
     const { handle, workflowId } = await start('exp-c', 'exp-c-1');
     assert.equal(workflowId, 'polyflow/expense/exp-c-1');
@@ -98,12 +100,25 @@ test('(c) approved: the sample\'s activities run, payment once, the server says 
     assert.equal(server.expenses.get('exp-c-1'), 'CREATED');
     const r = await handle.executeUpdate('polyflow.propose', { args: [{ action: 'APPROVE', orderId: order.orderId, actor: human }] });
     assert.equal(r.stepKind, 'accepted');
-    return handle.result();
+    const result = await handle.result();
+    journal = await handle.query('polyflow.journal');
+    return result;
   });
   assert.equal(out.state.expenseState, 'completed');
   assert.equal(server.expenses.get('exp-c-1'), 'COMPLETED');
-  const history = await env.client.workflow.getHandle('polyflow/expense/exp-c-1').fetchHistory();
+  const handle = env.client.workflow.getHandle('polyflow/expense/exp-c-1');
+  const history = await handle.fetchHistory();
   assert.deepEqual(scheduled(history).filter((t) => !t.startsWith('polyflow.')), ['createExpense', 'request_approval', 'payment']);
+  // The approval and its actor are in the journal row and in the ledger, as a
+  // proposal from a person; the actor is a claim here (no principals trust store).
+  const approve = journal.find((j) => j.action === 'APPROVE');
+  assert.deepEqual(approve.by, { id: 'manager', verified: false, roles: ['human'] });
+  const d = await handle.describe();
+  const { events } = sink.read({ ns: 'default', wf: 'polyflow/expense/exp-c-1', run: d.runId });
+  const proposal = events.find((e) => e.kind === 'proposal' && e.body.action === 'APPROVE');
+  assert.ok(proposal, `the ledger holds the approval: ${events.map((e) => `${e.kind}:${e.body.action ?? e.body.activityType ?? ''}`).join(' ')}`);
+  assert.equal(proposal.body.source, 'human');
+  assert.deepEqual(proposal.body.principal, { id: 'manager', verified: false, roles: ['human'] });
 });
 
 test('(d) rejected, or nobody answers: the run ends and nothing is paid', async () => {

@@ -165,7 +165,7 @@ export async function GovernedWorkflow(args = {}) {
   };
 
   /** THE write path. Synchronous, so no two proposals ever interleave. */
-  function step(action, data, { source, actionId } = {}) {
+  function step(action, data, { source, actionId, by = null } = {}) {
     if (actionId && results.has(actionId)) {
       const prior = results.get(actionId);
       // An id reused for a DIFFERENT action is a caller bug, not a duplicate (review D1).
@@ -196,7 +196,7 @@ export async function GovernedWorkflow(args = {}) {
     seq += 1;
     record({
       seq, action, data, pre: r.pre, post: r.post, stepKind: r.stepKind,
-      rejectReason: r.reason ?? null, actionId: actionId ?? null, source, at: now,
+      rejectReason: r.reason ?? null, actionId: actionId ?? null, source, at: now, ...(by ? { by } : {}),
     });
     if (r.stepKind === 'accepted') {
       state = r.post;
@@ -366,13 +366,24 @@ export async function GovernedWorkflow(args = {}) {
         return { stepKind: 'refused', reason: why, state };
       }
     }
+    let role = null;
     if (orderId) {
       const o = orders.get(orderId);
       if (o && o.status === 'open') { o.status = 'reported'; o.scope?.cancel(); }
+      role = o?.role ?? null;
       // Same id the worker-side completion would use: the two can never both land.
       actionId = actionId ?? `${orderId}:done`;
     }
-    return step(action, data, { source, actionId });
+    // Who proposed it is part of the record: the journal row carries the actor
+    // (a verified principal, or a claim), and the ledger a proposal event, so a
+    // person's answer to an order is in the signed chain, not only in Temporal's
+    // history (P11 sample 2 review, M1).
+    const by = actor ? { id: actorId(actor), verified: Boolean(actor.verified), ...(Array.isArray(actor.roles) ? { roles: actor.roles } : {}) } : null;
+    governorOf(workflowInfo().runId)?.record?.('proposal', {
+      source: role === 'human' ? 'human' : source === 'signal' ? 'signal' : 'agent',
+      action, dataDigest: digest(data), ...(by ? { principal: by } : {}), ...(orderId ? { orderId } : {}),
+    });
+    return step(action, data, { source, actionId, by });
   }
 
   /**

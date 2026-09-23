@@ -119,8 +119,14 @@ export function vet({ oldDir, newDir, fleet, allowEmptyFleet = false, trust = nu
     let migrated;
     const failed = (report.gates ?? []).filter((g) => !g.ok).map((g) => ({ gate: g.gate, summary: g.summary, first: g.failures?.[0]?.message }));
     // A gate polyvers could not run is not a gate that passed. Admission (above)
-    // covers the effect checks polyvers defers; anything else deferred pins.
-    const deferred = (report.deferred ?? []).filter((g) => !/check-effects/.test(g.gate ?? g));
+    // covers the effect checks polyvers defers. The parent/child rollout gates
+    // (`matrix + product`) judge a cross-machine surface this host does not
+    // have: a mapper that spawns or signals a child machine poisons the run
+    // (machine-host.mjs), and admission refuses a poisoned path, so no fleet
+    // holds a child machine and there is nothing for them to check (P11 sample
+    // 3: every version that adds an order kind edits the mapper). Anything
+    // else deferred pins.
+    const deferred = (report.deferred ?? []).filter((g) => !/check-effects|matrix \+ product/.test(g.gate ?? g));
     for (const g of deferred) failed.push({ gate: g.gate ?? g, summary: `not run: ${g.reason ?? 'deferred'}` });
     if (report.verdict !== 'PASS' || deferred.length) decision = 'pin';
     else if (needsMigration) {

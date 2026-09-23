@@ -30,5 +30,9 @@
       "upstream": "src/clients/timeout.ts",
       "why": "startGoverned; the approval window is the machine's timer, not a start argument"
     }
-  }
+  },
+  "notPorted": [
+    "package.json",
+    "README.md"
+  ]
 }

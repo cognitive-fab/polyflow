@@ -19,6 +19,7 @@ Date: 2026-09-22. It covers the tree as installed, not the ranges declared in `p
 | npm, Temporal-facing (kernel, temporal, cli, gateway) | 168 entries (164 distinct name@version) | MIT 84, Apache-2.0 41, BSD-3-Clause 19, "Apache-2.0 AND MIT" 11, ISC 8, BSD-2-Clause 1, 0BSD 1, Unlicense 1, **CC-BY-4.0 1**, **no licence field 1** |
 | npm, service only | 1 (the service itself) | Apache-2.0 |
 | npm, dev/test only | 1 (`@temporalio/testing`) | MIT |
+| npm, sample ports only (`examples/temporal_samples/*`, private, never published) | `axios@^1.7.9`, `express@^4.21.2` and their trees (P11); the sample sources themselves are MIT, Temporal Technologies Inc., with `NOTICE.md` in each port and the pinned copies under `examples/upstream/` | MIT (axios, express); the trees are permissive |
 | Python core (`temporalio>=1.33`) | 5 | MIT, BSD-3-Clause, Apache-2.0, PSF-2.0 |
 | Python `signing` extra | 3 | Apache-2.0 OR BSD-3-Clause, MIT-0, BSD-3-Clause |
 | Python `openai-agents` extra (sample) | 43 | permissive, plus **MPL-2.0** (certifi; tqdm is MPL-2.0 AND MIT) |

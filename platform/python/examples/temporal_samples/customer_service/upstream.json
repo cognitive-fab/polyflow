@@ -17,5 +17,8 @@
       "identical": false,
       "why": "temporalio.contrib import path (released SDK) only"
     }
-  }
+  },
+  "notPorted": [
+    "openai_agents/customer_service/README.md"
+  ]
 }
