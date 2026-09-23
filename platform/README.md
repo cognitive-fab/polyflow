@@ -15,6 +15,9 @@ worker plugin on the workflows a customer already has:
 > only over the finite domains a contract declares. Design notes and evidence:
 > [`docs/platform/`](../docs/platform/).
 
+**Docs:** the [getting-started guide](../docs/platform/guide/01-getting-started.md)
+and the [reference manual](../docs/platform/guide/02-reference-manual.md).
+
 ## Four levels, one at a time
 
 | Level | What becomes deterministic | What the agent keeps | Change to a customer's code |
