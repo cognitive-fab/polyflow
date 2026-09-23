@@ -21,6 +21,7 @@ from polyflow_temporal.ledger import Ledger, verify_chain
 from polyflow_temporal.plugin import LEDGER_HEADER, FileSink, MemorySink, PolyflowPlugin
 
 from parity_workflows import (
+    UpdateDriven,
     CancelledMidActivity, ChainAgent, DeclaredFailure, Refusal, Signaller, Sleeper, lookup, slow,
 )
 
@@ -170,6 +171,28 @@ async def test_continue_as_new_hands_over_the_chain_and_the_guard(env, tmp_path,
     assert [e["body"]["outcome"] for e in events if e["kind"] == "closure"] == ["continued-as-new", "continued-as-new", "completed"]
     out = subprocess.run(["node", str(CLI), "verify", str(files[0]), "--trust", str(tmp_path / "keys" / "trust.json")], capture_output=True, text=True)
     assert out.returncode == 0, out.stdout + out.stderr
+
+
+async def test_an_update_handler_may_run_before_the_workflow_function_on_both_sides_of_continue_as_new(env, tmp_path, key):
+    sink = FileSink(tmp_path / "ledger")
+    tq = f"par-{uuid.uuid4()}"
+    async with Worker(env.client, task_queue=tq, workflows=[UpdateDriven], activities=[lookup],
+                      plugins=[PolyflowPlugin(sink=sink, signing_key=key)], max_cached_workflows=0):
+        h = await env.client.start_workflow(UpdateDriven.run, id=f"par-upd-{uuid.uuid4()}", task_queue=tq)
+        assert await h.execute_update(UpdateDriven.ask, "one") == "found(one)"
+        first = (await h.describe()).run_id
+        await h.signal(UpdateDriven.done)
+        while (await h.describe()).run_id == first:  # the hand-over; an Update racing it is Temporal's own edge (TMPRL1102)
+            await asyncio.sleep(0.05)
+        assert await h.execute_update(UpdateDriven.ask, "two") == "found(two)", "delivered to the continued execution"
+        await h.signal(UpdateDriven.done)
+        assert await h.result() == "done"
+    files = [p for p in (tmp_path / "ledger").rglob("*.jsonl") if not p.name.endswith(".heads.jsonl")]
+    assert len(files) == 1, "one chain across the hand-over"
+    events = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines()]
+    assert verify_chain(events)["ok"]
+    assert [e["body"]["activityType"] for e in events if e["kind"] == "effect"] == ["lookup", "lookup"]
+    assert [e["body"]["outcome"] for e in events if e["kind"] == "closure"] == ["continued-as-new", "completed"]
 
 
 async def test_a_cancelled_activity_is_observed_and_the_run_closes_cancelled(env):

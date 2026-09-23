@@ -85,3 +85,29 @@ class Sleeper:
     def poke(self, _: str) -> None:
         self.poked = True
 
+
+
+@workflow.defn
+class UpdateDriven:
+    """Driven by Updates, like the official customer_service sample: an Update
+    handler schedules the effect, the workflow function only waits, and the
+    first execution hands over to a second. An Update may run before the
+    workflow function in an execution's first task; the chain must be one."""
+
+    def __init__(self) -> None:
+        self.finish = False
+
+    @workflow.run
+    async def run(self, continued: bool = False) -> str:
+        await workflow.wait_condition(lambda: self.finish and workflow.all_handlers_finished())
+        if not continued:
+            workflow.continue_as_new(True)
+        return "done"
+
+    @workflow.update
+    async def ask(self, q: str) -> str:
+        return await workflow.execute_activity(lookup, {"q": q}, start_to_close_timeout=T)
+
+    @workflow.signal
+    def done(self) -> None:
+        self.finish = True

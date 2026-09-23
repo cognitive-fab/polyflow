@@ -55,6 +55,7 @@ from temporalio.worker import (
     ExecuteActivityInput,
     ExecuteWorkflowInput,
     HandleSignalInput,
+    HandleUpdateInput,
     Interceptor,
     SignalChildWorkflowInput,
     SignalExternalWorkflowInput,
@@ -244,8 +245,36 @@ def _settled(observe):
     return cb
 
 
+class _RunRef:
+    """The execution's chain, shared by the inbound and outbound interceptors.
+
+    A signal or Update handler may run BEFORE the workflow function in the
+    first workflow task (the sample `openai_agents/customer_service` is driven
+    entirely by Updates), so the chain cannot wait for execute_workflow to
+    exist: a fresh execution creates it on first use. A continued execution
+    cannot (its head arrives in execute_workflow's headers), so its handlers
+    wait for the workflow function to start, which happens in the same task.
+    """
+
+    def __init__(self, config: dict):
+        self._config = config
+        self.run: _Run | None = None
+
+    def get(self) -> _Run:
+        if self.run is None:
+            if temporalio.workflow.info().continued_run_id:
+                raise RuntimeError("polyflow: an effect before the continued execution received its head")
+            self.run = _Run(self._config, None)
+        return self.run
+
+    async def started(self) -> _Run:
+        if self.run is None and temporalio.workflow.info().continued_run_id:
+            await temporalio.workflow.wait_condition(lambda: self.run is not None)
+        return self.get()
+
+
 class _Outbound(WorkflowOutboundInterceptor):
-    def __init__(self, next: WorkflowOutboundInterceptor, run_ref: list):
+    def __init__(self, next: WorkflowOutboundInterceptor, run_ref: _RunRef):
         super().__init__(next)
         self._run_ref = run_ref
 
@@ -257,14 +286,21 @@ class _Outbound(WorkflowOutboundInterceptor):
         input), read as it travels. A policy may ROUTE an activity that carries
         many tools (the OpenAI Agents SDK's ``<server>-call-tool-v2``): it is then
         classified by the value at the route's path in the arguments (P7.3a)."""
-        run: _Run = self._run_ref[0]
+        run: _Run = self._run_ref.get()
+        if run.closed:
+            # A handler still running after the workflow function continued-as-new
+            # or returned (Temporal warns about it, TMPRL1102) would make an effect
+            # this execution's record cannot hold: the closure is its last event.
+            # Refuse it, so nothing happens off the record.
+            raise ApplicationError(f"'{target}' after this execution closed: an effect with no record is refused",
+                                   type="PolyflowDenied", non_retryable=True)
         shaped = _jsonable(list(args) if listed else args)
         a_digest = _digest_json(shaped)
         routed = route_target(run.policy, target, shaped if listed else None) if run.policy else target
         cls = classify(run.policy, routed) if run.policy else {"kind": target, "class": "unlabelled", "labels": [], "declared": True}
         at = _now_ms()
         proposal = run.append("proposal", {"source": "workflow", "action": target, "dataDigest": a_digest})
-        pid = f"p{proposal['seq']}" if proposal else "p-closed"
+        pid = f"p{proposal['seq']}"
         c = {**cls, "target": target, "argsDigest": a_digest, "at": at, "proposal": pid}
         d = run.guard.decide(run.state, c) if run.guard else {"outcome": "allow", "rules": []}
         if d["outcome"] != "allow":
@@ -295,7 +331,7 @@ class _Outbound(WorkflowOutboundInterceptor):
         return observe
 
     def start_activity(self, input: StartActivityInput):
-        run: _Run = self._run_ref[0]
+        run: _Run = self._run_ref.get()
         if run.flushing and input.activity == FLUSH_ACTIVITY:
             return self.next.start_activity(dataclasses.replace(input, headers=run.carry(input.headers)))
         observe = self._govern("activity", input.activity, input.args)
@@ -355,7 +391,7 @@ class _Outbound(WorkflowOutboundInterceptor):
         # The chain is handed over, not restarted: close this execution's part,
         # then give the next execution the head, the chain's identity and the
         # guard's state. The flush happens in execute_workflow, on the way out.
-        run: _Run = self._run_ref[0]
+        run: _Run = self._run_ref.run
         if run is not None and not run.closed:
             run.close("continued-as-new")
             carried = {"run": dict(run.ledger.run), **run.ledger.head()}
@@ -369,7 +405,7 @@ class _Outbound(WorkflowOutboundInterceptor):
 def _make_inbound(config: dict):
     class _Inbound(WorkflowInboundInterceptor):
         def init(self, outbound: WorkflowOutboundInterceptor) -> None:
-            self._run_ref: list = [None]
+            self._run_ref = _RunRef(config)
             super().init(_Outbound(outbound, self._run_ref))
 
         async def _flush(self, run: _Run) -> bool:
@@ -412,8 +448,9 @@ def _make_inbound(config: dict):
                     # never silently restarts the chain and resets the guard.
                     resume = open_header(resume, config.get("header_keys") or {},
                                          expect={"runId": info.continued_run_id, "purpose": "head"})
-            run = _Run(config, resume)
-            self._run_ref[0] = run
+            # A fresh execution's handlers may already have created the chain.
+            run = self._run_ref.run if resume is None and self._run_ref.run is not None else _Run(config, resume)
+            self._run_ref.run = run
             try:
                 result = await super().execute_workflow(input)
             except temporalio.workflow.ContinueAsNewError:
@@ -432,17 +469,24 @@ def _make_inbound(config: dict):
             return result
 
         async def handle_signal(self, input: HandleSignalInput) -> None:
-            run = self._run_ref[0]
-            if run is not None:
-                run.append("proposal", {"source": "signal", "action": input.signal, "dataDigest": _args_digest(input.args)})
-                if run.guard:
-                    run.state = run.guard.signal(run.state, input.signal, _now_ms())
+            run = await self._run_ref.started()
+            run.append("proposal", {"source": "signal", "action": input.signal, "dataDigest": _args_digest(input.args)})
+            if run.guard:
+                run.state = run.guard.signal(run.state, input.signal, _now_ms())
             try:
                 return await super().handle_signal(input)
             except temporalio.workflow.ContinueAsNewError:
-                if run is not None:
-                    run.close("continued-as-new")
-                    await self._flush(run)
+                run.close("continued-as-new")
+                await self._flush(run)
+                raise
+
+        async def handle_update_handler(self, input: HandleUpdateInput) -> Any:
+            run = await self._run_ref.started()
+            try:
+                return await super().handle_update_handler(input)
+            except temporalio.workflow.ContinueAsNewError:
+                run.close("continued-as-new")
+                await self._flush(run)
                 raise
 
     return _Inbound

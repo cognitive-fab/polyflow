@@ -159,10 +159,20 @@ export function makeInterceptors(config, makeGovernor = observeOnly) {
       // One flush carries the trailing events and the closure together; the
       // loop in drainAll picks up anything that lands while it is in flight.
       append('closure', { outcome });
-      const carried = await drainAll();
       closed = true;
+      const carried = await drainAll();
       if (carried && config.memo !== false) upsertMemo({ polyflow: { head: open().head() } });
     };
+
+    // A handler still running after the workflow function continued-as-new or
+    // returned (Temporal warns: TMPRL1102) would make an effect this execution's
+    // record cannot hold, the closure being its last event. Refused, so nothing
+    // happens off the record.
+    const refuseClosed = (target) => ApplicationFailure.create({
+      type: 'PolyflowDenied', nonRetryable: true,
+      message: `'${target}' after this execution closed: an effect with no record is refused`,
+      details: [{ rules: [], allowedNow: [] }],
+    });
 
     const deny = (pid, rules, message, witness, at, extra = {}) => {
       append('verdict', { proposal: pid, outcome: 'denied', rules, witness: witness ?? null, reason: message, ...extra }, at);
@@ -229,6 +239,7 @@ export function makeInterceptors(config, makeGovernor = observeOnly) {
       const info = workflowInfo();
       const at = Date.now();
       const target = input.activityType ?? input.workflowType ?? input.operation ?? via;
+      if (closed) throw refuseClosed(target);
       const cls = governor.classify(target, input);
       const aDigest = argsDigest(input.args ?? input.input);
       const proposal = append('proposal', { source: 'workflow', action: target, dataDigest: aDigest }, at);
@@ -315,6 +326,7 @@ export function makeInterceptors(config, makeGovernor = observeOnly) {
      */
     const external = {
       order(target, payload) {
+        if (closed) throw refuseClosed(target);
         const at = Date.now();
         const cls = governor.classify(target, { activityType: target, args: [payload] });
         const aDigest = argsDigest([payload]);
