@@ -227,8 +227,9 @@ The following are said plainly, so diligence does not have to find them:
   Temporal's TypeScript and Python SDK stories identical.
 - **Licence.** Source-available. The plugin, the governed host, the gates,
   the CLI, the gateway, the service and the Python package are BUSL 1.1
-  (production use inside one's own organisation is granted; each version
-  converts to Apache-2.0 after four years). The kernel and the verifier are
+  (non-production use free; production use is a commercial licence at
+  USD 1,000 per year per organisation; each version converts to Apache-2.0
+  after four years). The kernel and the verifier are
   Apache-2.0, so a record is checkable by anyone, Temporal included, with no
   licence conversation. An acquirer takes the copyright and the BUSL
   exclusivity; nothing under Apache-2.0 is ever relicensed. See

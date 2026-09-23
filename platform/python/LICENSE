@@ -13,22 +13,15 @@ Licensed Work:        polyflow-temporal (the Python package: polyflow_temporal a
                       polyflow_langgraph), version 0.1.0 or later.
                       The Licensed Work is (c) 2026 Cognitive Fab LLC.
 
-Additional Use Grant: You may make production use of the Licensed Work within
-                      your own organisation, on Temporal namespaces (or other
-                      execution engines) your organisation operates or
-                      subscribes to, provided that Your use does not include
-                      offering the Licensed Work to third parties on a hosted,
-                      embedded or managed basis, and does not include
-                      operating, certifying or governing workflows or agents
-                      as a paid service for third parties.
-
-                      For purposes of this license, running the Licensed Work
-                      on your own workers, against your own namespaces, for
-                      your own agents and staff, is not a competitive
-                      offering, whether those namespaces are self-hosted or a
-                      cloud subscription. Your organisation includes all of
-                      your affiliates under common control.
-
+Additional Use Grant: None beyond the non-production use the Terms below
+                      grant. You may copy, modify, redistribute and make
+                      non-production use of the Licensed Work: evaluation,
+                      development, testing, teaching, research, and running it
+                      against a Temporal namespace that serves no production
+                      traffic. Production use requires a commercial licence
+                      from the Licensor; the standard terms are in
+                      LICENSING.md (USD 1,000 per year per organisation, all
+                      affiliates under common control included).
 Change Date:          Four years from the date the Licensed Work is published.
 
 Change License:       Apache License, Version 2.0

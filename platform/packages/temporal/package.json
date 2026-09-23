@@ -1,7 +1,7 @@
 {
   "name": "@cognitive-fab/polyflow-temporal",
-  "version": "0.1.0",
-  "description": "Polyflow for Temporal: a worker plugin that records, guards, governs and versions what agents on Temporal are allowed to do. Business Source License 1.1 (production use inside your own organisation is granted); the verifier is Apache-2.0 in @cognitive-fab/polyflow-verify.",
+  "version": "0.1.1",
+  "description": "Polyflow for Temporal: a worker plugin that records, guards, governs and versions what agents on Temporal are allowed to do. Business Source License 1.1 (non-production use free; production use is a commercial licence); the verifier is Apache-2.0 in @cognitive-fab/polyflow-verify.",
   "type": "module",
   "main": "src/index.mjs",
   "exports": {

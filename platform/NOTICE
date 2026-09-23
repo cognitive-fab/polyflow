@@ -3,8 +3,9 @@ Copyright (c) 2026 Cognitive Fab LLC.
 
 packages/temporal, packages/cli, packages/gateway, packages/service and python/
 are licensed under the Business Source License 1.1; see the LICENSE file in
-each and LICENSING.md for why. Not an Open Source licence: each version
-converts to Apache-2.0 four years after publication.
+each and LICENSING.md for why and for the commercial terms (production use:
+USD 1,000 per year per organisation). Not an Open Source licence: each
+version converts to Apache-2.0 four years after publication.
 
 packages/kernel and packages/verify are licensed under the Apache License,
 Version 2.0. They are the half anyone may run: the ledger, the rule kernel,

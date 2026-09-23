@@ -18,22 +18,34 @@ calls it open source.
 | The ports of Temporal's official samples, and the pinned upstream copies | **MIT** (Temporal Technologies Inc.) | `examples/temporal_samples/*`, `examples/upstream/*`, with a `NOTICE.md` in each port |
 | `polyflow` itself — the SAM v2 workflow runtime and MCP server at the repository root | **Apache-2.0** | the repository root; on npm as `@cognitive-fab/polyflow` |
 
-## The BUSL grant
+## The BUSL grant, and the commercial licence
 
 Each BUSL package's `LICENSE` is the Business Source License 1.1 with four
-parameters filled in. The one that matters day to day is the **Additional
-Use Grant**: you may make production use of the Licensed Work within your own
-organisation, on Temporal namespaces (self-hosted or a cloud subscription)
-your organisation operates or subscribes to, for your own agents and staff.
-What it does not permit is offering the Licensed Work to third parties on a
-hosted, embedded or managed basis, or operating, certifying or governing
-workflows or agents as a paid service for others.
+parameters filled in. What it grants without a purchase is **non-production
+use**: read it, modify it, evaluate it, develop and test against it, teach
+with it, run it against a namespace that serves no production traffic.
+
+**Production use needs a commercial licence.** The standard terms are:
+
+- **USD 1,000 per year per organisation**, all affiliates under common
+  control included, any number of workers, namespaces and agents;
+- covers every BUSL package here (the plugin, the gates, the CLI, the gateway,
+  the service, the Python package) at every version published during the
+  term;
+- does not cover offering the Licensed Work to third parties on a hosted,
+  embedded or managed basis, or operating, certifying or governing workflows
+  or agents as a paid service for others — those are separate terms.
+
+licensing@cognitivefab.com for the standard licence or anything else.
 
 Four years after a version is published it becomes Apache-2.0 automatically.
 That is what the licence says about what happens if the licensor disappears,
 and it is in writing rather than in an escrow agreement.
 
-For terms other than the Additional Use Grant: licensing@cognitivefab.com.
+**Version 0.1.0 of the npm packages** was published with a broader Additional
+Use Grant (production use inside one's own organisation, no fee). BUSL applies
+per version, so that grant stands for 0.1.0 as published; 0.1.0 is deprecated
+on the registry and every later version carries the grant above.
 
 ## Why the verifier is Apache-2.0
 

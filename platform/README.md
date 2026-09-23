@@ -107,4 +107,4 @@ cd platform && npm install
 
 ## Licence
 
-Source-available, not open source: the plugin, gates, CLI, gateway, service and Python package are under the Business Source License 1.1 (production use inside your own organisation is granted; each version converts to Apache-2.0 four years after publication); the kernel and the verifier are Apache-2.0, so a record is checkable by anyone. [`LICENSING.md`](LICENSING.md) says which part is under which licence and why.
+Source-available, not open source: the plugin, gates, CLI, gateway, service and Python package are under the Business Source License 1.1 (non-production use is free; production use is a commercial licence at USD 1,000 per year per organisation; each version converts to Apache-2.0 four years after publication); the kernel and the verifier are Apache-2.0, so a record is checkable by anyone. [`LICENSING.md`](LICENSING.md) says which part is under which licence and why.
