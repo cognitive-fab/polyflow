@@ -7,10 +7,10 @@
 // Every command is deterministic, offline and model-free. Exit codes: 0 ok,
 // 1 the thing checked is not ok, 2 the command itself was used wrongly.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import {
-  verifyBundle, readJsonl, ledgerFromHistory, fileSink, generateSigningKey,
+  verifyBundle, verifyThread, readJsonl, ledgerFromHistory, fileSink, generateSigningKey,
 } from '@cognitive-fab/polyflow-temporal';
 import { admit } from './admit.mjs';
 import { admitPolicy, PolicyError } from '@cognitive-fab/polyflow-kernel';
@@ -36,6 +36,8 @@ function parse(argv) {
 const USAGE = `polyflow — offline tools for Polyflow for Temporal
 
   polyflow verify <run.jsonl> [--trust trust.json] [--allow-open] [--unsigned] [--json]
+  polyflow verify --thread <dir> [--trust trust.json] [--unsigned] [--json]
+      every chain of a LangGraph thread as one record: one root, resolving links, one open chain at most
       check a run's ledger: chain, signatures, coverage of the last event, and
       closure. Heads are read from <run>.heads.jsonl beside it. trust.json maps
       keyId -> public key PEM. --allow-open accepts a run still in progress;
@@ -63,7 +65,35 @@ Consistency checks, not proofs. admit and vet LOAD the candidate's code (its
 invariants, its migration) in this process, with your privileges: run them on
 code you would run anyway, in CI, with no credentials in the environment.`;
 
+/** `polyflow verify --thread <dir>`: every chain of a LangGraph thread, as one record (P10 review VF1). */
+function verifyThreadDir(dir, flags, out) {
+  if (!existsSync(dir)) throw new Usage(`no such directory: ${dir}`);
+  const chains = [];
+  try {
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.jsonl') && !n.endsWith('.heads.jsonl')).sort()) {
+      const events = readJsonl(join(dir, f), { strict: true }).sort((a, b) => a.seq - b.seq);
+      const headsFile = join(dir, f.replace(/\.jsonl$/, '.heads.jsonl'));
+      chains.push({ events, heads: existsSync(headsFile) ? readJsonl(headsFile, { strict: true }) : [] });
+    }
+  } catch (err) {
+    out(`  ✖ ${err.message}`);
+    out('  NOT OK');
+    return 1;
+  }
+  const trust = flags.trust ? JSON.parse(readFileSync(flags.trust, 'utf-8')) : {};
+  const r = verifyThread(chains, { trust, unsigned: Boolean(flags.unsigned) });
+  if (flags.json) { out(JSON.stringify(r, null, 2)); return r.ok ? 0 : 1; }
+  out(`${dir} — ${r.chains} chain(s)`);
+  out(`  root        ${r.roots.join(', ') || '(none)'}`);
+  for (const l of r.links) out(`  link        ${l.from} → ${l.to}`);
+  out(`  open        ${r.open.join(', ') || '(none: every chain closed)'}`);
+  for (const p of r.problems) out(`  ✖ ${p}`);
+  out(r.ok ? '  OK — one thread: every chain verifies, and the links resolve. A consistency check, not a proof.' : '  NOT OK');
+  return r.ok ? 0 : 1;
+}
+
 function verify({ pos, flags }, out) {
+  if (typeof flags.thread === 'string') return verifyThreadDir(flags.thread, flags, out);
   const file = pos[0];
   if (!file) throw new Usage('verify needs a run ledger file');
   if (!existsSync(file)) throw new Usage(`no such file: ${file}`);

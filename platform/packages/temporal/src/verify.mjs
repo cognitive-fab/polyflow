@@ -57,3 +57,65 @@ export function verifyBundle({ events, heads = [], trust = {}, allowOpen = false
   report.verdict = report.ok ? (report.closed ? 'closed-and-signed' : 'open-and-signed') : 'not-ok';
   return report;
 }
+
+/**
+ * A thread of linked chains (the LangGraph binding, P10 review VF1): every
+ * chain verifies as a bundle (the open one may be open); exactly one chain
+ * starts the thread; every other one's admission `continues` a CLOSURE of
+ * another chain of the thread, and no closure is continued twice; at most one
+ * chain is open; every effect follows its proposal's `allowed` verdict; every
+ * observation names an effect of its chain, once. The same rules as Python's
+ * `polyflow_langgraph.verify_thread`.
+ * @param {{ events: object[], heads: object[] }[]} chains
+ */
+export function verifyThread(chains, { trust = {}, unsigned = false } = {}) {
+  const problems = [];
+  const byRun = new Map();
+  for (const c of chains) if (c.events.length) byRun.set(c.events[0].run.run, c);
+  if (!byRun.size) return { ok: false, problems: ['no chain in this thread'], chains: 0, roots: [], open: [], links: [] };
+  const roots = [];
+  const open = [];
+  const links = [];
+  const continued = new Map();
+  const thread = (e) => e?.body?.execution?.thread;
+  const threads = new Set([...byRun.values()].map((c) => thread(c.events[0])));
+  if (threads.size !== 1) problems.push(`the chains name ${threads.size} different threads`);
+  for (const [run, { events, heads }] of byRun) {
+    const closed = events.some((e) => e.kind === 'closure');
+    if (!closed) open.push(run);
+    // Unsigned: a consistency check of what the thread holds; heads are not judged.
+    const r = verifyBundle({ events, heads: unsigned ? [] : heads, trust, allowOpen: !closed, unsigned });
+    if (!r.ok) { problems.push(`${run}: ${r.problems.join('; ')}`); continue; }
+    const first = events[0];
+    if (first.kind !== 'admission') problems.push(`${run}: does not start with an admission`);
+    const link = first.kind === 'admission' ? first.body?.continues : null;
+    if (!link) roots.push(run);
+    else {
+      const target = byRun.get(link.run?.run);
+      const at = target?.events.find((e) => e.seq === link.seq);
+      if (!at || at.hash !== link.hash || at.kind !== 'closure') problems.push(`${run}: its continues link does not resolve to a closure of this thread`);
+      const key = `${link.run?.run}#${link.seq}`;
+      if (continued.has(key)) problems.push(`${run} and ${continued.get(key)} both continue the same closure`);
+      continued.set(key, run);
+      links.push({ from: link.run?.run, to: run });
+    }
+    const verdicts = new Map();
+    const effects = new Set();
+    const observed = new Set();
+    for (const e of events) {
+      const b = e.body ?? {};
+      if (e.kind === 'verdict') verdicts.set(b.proposal, b.outcome);
+      else if (e.kind === 'effect') {
+        if (verdicts.get(b.proposal) !== 'allowed') problems.push(`${run}: effect ${b.id} does not follow an allowed verdict`);
+        effects.add(b.id);
+      } else if (e.kind === 'observation') {
+        if (!effects.has(b.effect)) problems.push(`${run}: observation of unknown effect ${b.effect}`);
+        if (observed.has(b.effect)) problems.push(`${run}: effect ${b.effect} observed twice`);
+        observed.add(b.effect);
+      }
+    }
+  }
+  if (roots.length !== 1) problems.push(`the thread has ${roots.length} unlinked chains; it must have exactly one`);
+  if (open.length > 1) problems.push(`the thread has ${open.length} open chains: ${open.sort().join(', ')}`);
+  return { ok: problems.length === 0, problems, chains: byRun.size, roots, open, links };
+}

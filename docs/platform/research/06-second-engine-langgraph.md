@@ -8,7 +8,8 @@ feedback 1, §1)?
 **Answer: yes, at G0/G1.** `platform/python/polyflow_langgraph/` governs the tool
 calls of an unmodified prebuilt LangGraph ReAct agent. It uses the Python kernel
 unchanged (canonical JSON, ledger, rule kernel, redaction, sinks, head signing)
-and imports no `temporalio`. Each tool call becomes proposal → verdict → effect →
+and imports no `temporalio`. A thread's chain and guard state are kept in a
+per-thread record beside the sink, and never in the agent's messages. Each tool call becomes proposal → verdict → effect →
 observation in the same hash-chained format. The TypeScript `polyflow verify`
 accepts the ledger as "consistent, closed and signed". The conformance guard
 vectors (`guard.json`, `routed-guard.json`) give byte-identical decisions,
@@ -21,24 +22,18 @@ langchain-core 1.6.4, with Python 3.12.10.
 
 ## 1. What was built
 
+The design changed after the P10 review ([`reviews/P10-review.md`](../reviews/P10-review.md)).
+The first version carried the chain and the guard state in the agent's
+messages, and that let anyone who could edit the list reset or forge them.
+This section and §3 describe the design as it now stands.
+
 | File | What it is |
 |---|---|
-| `platform/python/polyflow_langgraph/binding.py` | `govern(tools, level, policy, sink, signing_key, ...)` returns a `ToolNode` that has the governor on `.governor`. The file also has `Governor`, with `wrap_tool_call`/`awrap_tool_call`, `close`, and `snapshot`. It has the pure guard path `govern_effect`/`observe_effect`, `ledger_of(state)` (which rebuilds the record from a thread's state), and `checkpoint_ms`. |
-| `platform/python/polyflow_temporal/sinks.py` | `FileSink`, `MemorySink`, `partition_delta`, `safe_component`, `sign_head`/`head_message`, moved out of `plugin.py` without a change so that they import without Temporal. `plugin.py` re-exports them under the old names. |
-| `platform/python/tests/test_langgraph.py` | 16 tests, offline, using a scripted chat model (§4). |
-| `platform/python/pyproject.toml` | Adds the extra `langgraph = ["langgraph>=1.0,<2"]` and an explicit package list. |
-
-Usage. The agent's code is unchanged, and only the tool list is wrapped:
-
-```python
-from polyflow_langgraph import govern
-from polyflow_temporal.sinks import FileSink
-
-tools = govern([read_ticket, issue_refund], level="guard", policy=admitted, sink=FileSink("./ledger"), signing_key=key)
-agent = create_react_agent(model, tools, checkpointer=saver)
-agent.invoke({"messages": [...]}, {"configurable": {"thread_id": "t-42"}})
-tools.governor.close(agent, {"configurable": {"thread_id": "t-42"}})   # optional: the final closure
-```
+| `platform/python/polyflow_langgraph/binding.py` | `govern(tools, level, policy, sink, store, signing_key, ...)` returns a `ToolNode` that has the governor on `.governor`. The file also holds: `Governor`, with `wrap_tool_call`/`awrap_tool_call`, `close` and `snapshot(thread)`; the pure guard path `govern_effect`/`observe_effect`; `idempotency_key`; `verify_thread` (the thread-level check, VF1); and `checkpoint_ms`. |
+| `platform/python/polyflow_langgraph/store.py` | The per-thread governance record: `MemoryThreadStore` and `FileThreadStore` (`<root>/<ns>/<thread>/thread.state.json` beside the `FileSink`'s run files, written atomically under an OS file lock). `store_for(sink)` places it with the sink by default. |
+| `platform/python/polyflow_temporal/sinks.py` | `FileSink`, `MemorySink`, `partition_delta`, `safe_component` and `sign_head`/`head_message`, moved out of `plugin.py` so that they import without Temporal. `FileSink` now re-reads a run file that another writer changed (LG7). |
+| `platform/python/tests/test_langgraph.py`, `tests/test_review_p10.py` | 19 and 12 tests, offline, with a scripted chat model (§4) |
+| `platform/python/pyproject.toml` | `langgraph = ["langgraph>=1.2,<2", "langgraph-prebuilt>=1.1,<2"]` (the versions tested) and an explicit package list |
 
 ## 2. The seam and why it was chosen
 
@@ -55,116 +50,139 @@ handler)` shape, so `Governor.wrap_tool_call` fits there too (not tested, becaus
 Two other seams were rejected:
 
 - A callback handler can observe but cannot refuse.
-- Wrapping each `BaseTool` loses the agent state and the checkpoint id, and
-  durability depends on both.
+- Wrapping each `BaseTool` loses the thread and the model turn, and the guard
+  needs both.
+
+`govern` builds the `ToolNode` itself, from the tools, so that it knows which
+tool names are real. Any other name the model uses is recorded as `<unknown
+tool>` plus a digest. At guard level it is refused (LG9).
 
 ## 3. Durability: what LangGraph guarantees, and what the binding builds on it
 
-**LangGraph is not Temporal.** Its code is not replayed deterministically, and
-it has no event history. A tool runs **at least once**. A node that raises, or a
-process that dies, re-runs from the last checkpoint. The binding relies only on
-what LangGraph does persist:
+**LangGraph is not Temporal.** It does not replay code deterministically, and it
+keeps no event history. A tool runs **at least once**: a node that raises, or a
+process that dies, re-runs from the last checkpoint. A replay from an old
+`checkpoint_id` runs a completed step again. Anything that can call
+`update_state`, send API input or trim the history can rewrite the message list.
 
-1. The model's tool calls are in a checkpoint before any tool runs. A resumed
-   step re-runs from that same checkpoint, and its id is exposed as
-   `runtime.execution_info.checkpoint_id`. The id is a uuid6 and carries its
-   own timestamp.
-2. With `create_react_agent`'s default `version="v2"`, each tool call is its own
-   task (`Send`). A finished task's write (its `ToolMessage`) is saved as a
-   pending write and is not run again.
+**Where the authority lives.** A thread's chain head, guard state, decided turns
+and effect outcomes are kept in a **per-thread record**, keyed by `(ns,
+thread_id)`. The record sits beside the sink: `thread.state.json` next to a
+`FileSink`'s files, or in memory next to a `MemorySink`. Any other sink needs an
+explicit `store=` at guard level.
 
-The binding builds three properties on these facts.
+The binding never reads anything back from message metadata. The
+`response_metadata["polyflow"]` it attaches (effect id and idempotency key) is
+there for people to read. Every decision is a read-modify-write of the record
+inside a transaction, which holds a lock both in-process and at OS file level.
+So parallel Send tasks, subagents that share a thread, and several workers over
+one ledger directory all serialise on the thread (LG5, LG7).
 
-**A model turn is decided as one batch, from the checkpoint.** The decisions for
-one AIMessage's tool calls depend only on checkpointed data:
+**A model turn is decided once.** A turn is identified by its AIMessage's id and
+its calls (id, tool name, argument digest). It is decided against the thread's
+current guard state, and its events are appended to the thread's one chain and
+exported. Any later sight of the same turn gets the stored decisions: a sibling
+task, a crash re-run, or a replay from an old checkpoint.
 
-- the chain head and guard state carried in the thread;
-- the tool calls, in order;
-- the checkpoint's own time, used as the decision time. A Temporal workflow task
-  also has one time.
+**Each decision is bound to its call.** A call executes only under the entry
+whose (id, name digest, argument digest) equals the call being executed (LG1,
+FO1). A turn whose ids repeat, or that has a call with no id, is refused whole.
+The witness says why, so the model can retry.
 
-Every parallel task of the step, and every re-run of it (in the same process or
-another one), therefore derives the **same** events. The events are written to
-the sink **before** the tool runs, and the sink skips events it already holds.
+**Effects are observed when they return.** The observation is appended as soon
+as the tool returns, stamped with that moment. The effect is stamped with the
+decision time. The checkpoint id the call ran under is recorded in the proposal
+(TM1).
 
-**The chain is carried in the checkpoint.** Each `ToolMessage` carries the batch
-(its events, head and guard state) and the call's outcome (ok, result digest or
-redacted error, finish time). They go in `response_metadata["polyflow"]`, which
-is never sent to a model. The next batch, or `close`, turns those outcomes into
-observations in call order, stamped with the times the tools finished. So:
+| Case | What happens |
+|---|---|
+| Crash re-run (the tool raised, or the process died before its outcome was recorded) | The same effect runs again. Its observation says `attempts: 2`. The re-execution is recorded, not hidden. |
+| Replay of a step whose effect was already observed (LG8) | The tool does **not** run again. The recorded result is returned (for the last 256 effects of a thread; older ones get a `PolyflowReplay` refusal). |
+| Trimmed history (LG3), time-travel fork (LG4) or custom `messages_key` (LG6) | The next turn is decided against the thread's latest state, so a spent budget stays spent. A fork is also reported through `on_conflict`. |
 
-- A resumed thread continues **one** chain, in a fresh process with a fresh
-  `Governor` (tested). An interrupt before the tools, a node that failed, and a
-  parallel step where one task died all continue the same chain.
-- A re-run records nothing twice and spends no budget twice. The re-run is the
-  **same** effect, with the same idempotency key `"<thread>/<tool_call_id>"`, and
-  the guard committed it once (tested: a refund whose worker died mid-call is
-  re-run and recorded once, and a second refund is still denied).
-- `ledger_of(state)` rebuilds the record from the checkpoint alone. It plays the
-  part that `polyflow export` plays for a Temporal history. The exporter uses
-  it to back-fill a sink that fell behind.
+**Linked chains.** A thread has one chain until `close()`. A thread that goes on
+after a close gets a new chain whose admission `continues` the closure, and the
+guard state carries over. `verify_thread(sink, thread)` checks the thread as one
+record (VF1):
 
-**Divergence is recorded, not hidden.** Two cases diverge from what the sink
-holds:
+- every chain verifies;
+- exactly one chain is the root;
+- every link resolves to a closure, and no closure is continued twice;
+- at most one chain is open;
+- every effect follows an `allowed` verdict;
+- every observation names a known effect, once.
 
-- a thread that goes on after `close`;
-- a time-travel fork from an older checkpoint (`update_state`, or
-  `checkpoint_id` in the config).
+**Fail closed.** At guard level, the governor refuses a call rather than guess:
 
-The sink refuses the delta whole. The binding then starts a new chain, whose
-admission body contains `continues: {run, seq, hash}`. That chain carries the
-thread's guard state forward, so a spent budget stays spent (tested). The
-branch is reported through `on_conflict`.
+- a call with no thread or no checkpoint (a graph without a checkpointer, or a
+  langgraph without `execution_info`), unless `allow_unthreaded=True` (LG11);
+- a call whose model turn is not in the state under `messages_key`;
+- a call on a thread whose ledger exists but whose record is missing.
+
+The binding never back-fills or signs an event that its own record did not
+append, so no planted message can get a chain signed (LG2).
 
 ### What is not guaranteed
 
-- **At-most-once tool execution.** LangGraph re-runs a tool whose task did not
-  finish. The ledger records one effect with one idempotency key, but the side
-  effect may have happened twice. Tools with external effects should
-  de-duplicate on the idempotency key. This is the same contract as a Temporal
-  activity.
-- **An outcome that is never persisted.** If a tool ran but its task never
-  wrote (the process died and the thread was never resumed), the sink holds
-  proposal, verdict and effect with no observation. That is honest ("started,
-  outcome unknown"), but the record is open. A missing `ToolMessage` found at
-  the next batch (for example, removed by message trimming) is recorded as
-  `ok: false, "no outcome recorded"`.
+- **At-most-once tool execution.** A tool whose outcome was not recorded
+  (crash) runs again. The ledger records one effect and the number of attempts,
+  and tools with external effects should de-duplicate on the idempotency key.
+  The key is a digest of the chain and the effect id, so it is unique per
+  effect (LG10). This is the same contract as a Temporal activity.
+- **The record is as durable, and as shared, as its store.**
+  - `MemoryThreadStore` lives in one process.
+  - `FileThreadStore` needs every worker on the same filesystem, with working
+    OS locks (a local disk, or a network filesystem whose locking you trust).
+  - Several hosts without a shared filesystem need a store behind the
+    governance service. That store is not built.
+  - The record is operator-side state, like the sink. The agent and API input
+    cannot reach it. Anyone with write access to the store can rewrite it, as
+    they could the sink.
+- **An outcome that is never recorded.** If a tool ran and the process died, and
+  the thread is never resumed, the record holds an open effect. `close()`
+  observes it as `ok: false, "no outcome recorded before close"`.
+- **Fork detection is a heuristic.** A turn whose state holds an older decided
+  turn but not the newest one is reported as a fork. Two subagents that take
+  turns on one thread can trigger it. The report is only a warning: governance
+  always uses the thread's latest state.
+- **Old turns.** The record keeps the last 512 turns. A replay of an older turn
+  is decided again, against the current state, so budgets still hold.
 - **Replay determinism of the agent.** Nothing checks that the graph code is
-  deterministic. Temporal's replayer does check this. The binding's determinism
-  covers its own events only.
-- **Closure.** A LangGraph thread has no end. `close()` appends the closure and
-  is idempotent for the same final checkpoint. Without it, verify the ledger
-  with `--allow-open`.
-- **Checkpoint ids.** The decision time comes from a uuid6 checkpoint id, and
-  every LangGraph saver gets its ids from the Pregel loop. Given any other id,
-  the binding falls back to wall time, and a re-run would then conflict rather
-  than dedupe.
-- **Tools that return a `Command`.** The outcome is carried only when the
-  Command's `messages` update contains that call's `ToolMessage`.
-- **The async path** (`ainvoke`) writes the sink synchronously.
+  deterministic. Temporal's replayer does check this.
+- **Closure.** A thread has no end. `close()` appends the closure and is
+  idempotent. Without it, verify with `--allow-open`.
+- **Tools that return a `Command`.** The observation carries the result digest
+  only when the Command's `messages` contain that call's `ToolMessage`.
+  Otherwise the call is observed as `ok` without a result.
+- **`polyflow verify` (TypeScript) checks one chain file.** The thread-level
+  check is Python's `verify_thread`. A `polyflow verify --thread <dir>` with the
+  same rules is proposed for the TypeScript CLI.
 
-## 4. Tests (`tests/test_langgraph.py`, all offline)
+## 4. Tests (all offline)
 
 | Claim | Test |
 |---|---|
-| (a) every tool call is recorded, and the guard decides | `test_every_tool_call_is_recorded_and_the_guard_decides`: refund before read is denied (`read-before-refund`), read and refund are allowed, a second refund is denied (`one-refund`), and only the allowed calls ran. Also `test_observe_records_without_a_policy` (G0) and `test_the_async_path_records_and_decides_the_same`. |
-| (b) the model sees the witness | The denied call's `ToolMessage` (status `error`) is `{"error": "PolyflowDenied", message, rules, witness}`, and its witness digest equals the one in the ledger's verdict |
-| routes | `test_a_routed_generic_tool_is_classified_by_the_tool_it_carries`: `call_tool(tool_name=...)` with `routes: {"call_tool": "0.tool_name"}`. A parallel turn gets one refund, and a case variant is denied as routed and undeclared (SEC-UL1) |
-| (c) resume continues one chain | `test_a_thread_resumed_in_a_fresh_process_continues_one_chain` (an interrupt before the tools, then a new Governor), `test_a_step_that_dies_mid_tool_is_re_run_but_recorded_once_and_charged_once` (a parallel step with one task dying, then a refund dying), `test_a_closed_thread_that_goes_on_starts_a_linked_chain` |
-| (d) `polyflow verify` accepts it | `test_a_langgraph_ledger_verifies_under_the_typescript_cli`: signed with a `polyflow keygen` key, written by two processes' `FileSink`s across a resume, and reported as "consistent, closed and signed" |
-| (e) conformance | `guard.json` and `routed-guard.json` replayed through `govern_effect`/`observe_effect`: the same decisions, witness digests, classifications and state digests |
-| neutrality | `test_the_binding_does_not_import_temporalio` runs in a clean interpreter |
+| (a) every tool call is recorded, and the guard decides | `test_every_tool_call_is_recorded_and_the_guard_decides`, `test_observe_records_without_a_policy` (G0), `test_the_async_path_records_and_decides_the_same` |
+| (b) the model sees the witness | The denied call's `ToolMessage` is `{"error": "PolyflowDenied", message, rules, witness}`, and its witness digest equals the one in the ledger |
+| routes | `test_a_routed_generic_tool_is_classified_by_the_tool_it_carries` |
+| (c) resume continues one chain | `test_a_thread_resumed_in_a_fresh_process_continues_one_chain`, `test_a_step_that_dies_mid_tool_is_re_run_but_recorded_once_and_charged_once` (attempts recorded), `test_a_closed_thread_that_goes_on_starts_a_linked_chain` |
+| (d) `polyflow verify` accepts it | `test_a_langgraph_ledger_verifies_under_the_typescript_cli`; LG7 (two long-lived workers over one directory) |
+| (e) conformance | `guard.json` and `routed-guard.json` through `govern_effect`/`observe_effect` |
+| review findings | `test_review_p10.py`: LG1a/b (bound decisions, repeated ids refused), LG2 (a planted chain is never signed), LG3 (trimming), LG4 (time travel), LG5 (parallel subagents), LG6 (`messages_key`), LG7 (two workers), LG8 (replay), LG9 (names), LG10 (keys), LG11 (no `execution_info`) |
+| fail closed, VF1 | `test_a_thread_whose_record_is_missing_while_its_ledger_exists_is_refused`, `test_no_checkpointer_is_refused_unless_explicitly_allowed`, `test_verify_thread_reports_unlinked_chains_and_effects_without_an_allowed_verdict` |
+| neutrality | `test_the_binding_does_not_import_temporalio` |
 
 ## 5. How it differs from the Temporal plugin
 
 | | Temporal plugin | LangGraph binding |
 |---|---|---|
 | Unit of governance | an activity, child, signal or Nexus call | a tool call (`via: "langgraph-tool"`) |
-| Where the record is durable | the workflow history (ledger headers) | the checkpoint (`ToolMessage.response_metadata`) |
-| Export | the activity interceptor, after history | write-ahead of the tool, deterministic, so re-runs are skipped |
-| Decision time | workflow time | the checkpoint's uuid6 time |
+| Where the chain and guard state live | the workflow history (ledger headers, sealed with a key) | the per-thread record beside the sink (never the agent's messages) |
+| Export | the activity interceptor, after history | from the record, under the thread's lock, before the tool runs |
+| Decision time | workflow time | the wall time of the decision (the checkpoint id is in the proposal) |
 | Chain identity | `{ns, workflowId, first runId}` | `{ns: "langgraph", wf: thread_id, run: first governed checkpoint id}` |
-| Hand-over | Continue-as-New carries the head and guard state | the checkpoint carries them. A divergence starts a linked chain |
+| Hand-over | Continue-as-New carries the head and guard state | the record does. After `close`, a linked chain continues it |
+| Re-execution | an activity retry is the same effect | a crash re-run is the same effect (with `attempts`). A replay of an observed effect returns the recorded result |
 | Proposal `source` | `workflow` | `model` |
 | Escalation | refused (no inbox in Python) | refused. LangGraph `interrupt()` would be the natural inbox, but it is not built |
 | G2/G3, sealed headers, verified principals | yes | no (out of scope for P10) |
@@ -172,5 +190,6 @@ branch is reported through `on_conflict`.
 **Packaging note.** The binding ships in the same `polyflow-temporal`
 distribution, so a LangGraph-only install still pulls `temporalio`, although it
 never imports it. Splitting the kernel into its own distribution is a packaging
-follow-up. The `langgraph` extra pulls certifi (MPL-2.0) through httpx. That
-extra is the only place it enters, as for `openai-agents` (licence audit L7).
+follow-up. The `langgraph` extra pulls MPL-2.0 code: certifi (through httpx and
+requests) and orjson (through langsmith). That extra is the only place they
+enter, as for `openai-agents` (licence audit L7b).

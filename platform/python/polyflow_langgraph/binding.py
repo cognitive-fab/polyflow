@@ -5,46 +5,42 @@ the Polyflow guard.
 The seam
 --------
 ``ToolNode(tools, wrap_tool_call=..., awrap_tool_call=...)`` (langgraph-prebuilt
-1.x). It is the interceptor LangGraph itself offers at tool execution: it sees
-the model's tool call, the agent's state and the runtime (thread, checkpoint,
-task), and it may run the tool, or not, and return the ``ToolMessage`` the
-model reads. ``create_react_agent(model, tools)`` accepts a ``ToolNode`` in place
-of a tool list and uses it as is, so ``govern(tools, ...)`` governs an agent
-without a change to its graph. ``langchain.agents.create_agent`` middleware has
-the same ``wrap_tool_call(request, handler)`` shape: ``Governor.wrap_tool_call``
-fits there too. A callback handler would only observe (it cannot refuse), and
-wrapping each ``BaseTool`` would lose the state and the checkpoint.
+1.1). It is the interceptor LangGraph itself offers at tool execution: it sees
+the model's tool call, the agent's state and the runtime (thread, checkpoint),
+and it may run the tool, or not, and return the ``ToolMessage`` the model reads.
+``create_react_agent(model, tools)`` accepts a ``ToolNode`` in place of a tool
+list and uses it as is, so ``govern(tools, ...)`` governs an agent without a
+change to its graph. A callback handler would only observe (it cannot refuse),
+and wrapping each ``BaseTool`` would lose the thread and the model turn.
 
-Durability: a step is decided as a batch, from the checkpoint
-------------------------------------------------------------------
-LangGraph is not Temporal: there is no deterministic replay of code, and a tool
-may run more than once (a node that fails, or a process that dies, re-runs from
-the last checkpoint). What the binding relies on is what LangGraph does
-persist:
+Where the authority lives (P10 review)
+--------------------------------------
+The chain head, the guard state, the decided turns and the effects' outcomes
+of a THREAD live in a per-thread record (``store.py``), beside the sink, keyed
+by (ns, thread_id). Never in the agent's message list: that list is
+unauthenticated, is rewritten by trimming, ``update_state`` and time travel,
+and is not the thread (subagents each have their own). The binding reads
+nothing back from message metadata; the hint it attaches is for people.
 
-- the model's tool calls are in the checkpoint before any tool runs, and a
-  resumed step re-runs from that same checkpoint, whose id (a uuid6: it carries
-  its own timestamp) the runtime exposes;
-- a ``ToolMessage`` a task returns is written to the checkpointer when the
-  task finishes (a pending write), and a finished task is not re-run.
-
-So the decisions for one model turn are a pure function of the checkpointed
-state: the carried chain head and guard state, the model's tool calls in order,
-and the checkpoint's own time as the decision time (as a Temporal workflow task
-has one time). Every task of the step, and every re-run of it, derives the SAME
-events. They are written to the sink BEFORE the tool runs (the sink skips what
-it already holds), and they ride in the checkpoint on each ``ToolMessage``'s
-``response_metadata`` (never sent to a model), with the call's outcome. The
-next model turn's batch (or ``close``) folds those outcomes into observations,
-in call order, at the times the tools finished. A resumed thread therefore
-continues ONE chain, and a re-run records nothing twice and spends no budget
-twice. A closed thread that goes on, or a time-travel fork from an older
-checkpoint, diverges from what the sink holds: the binding then starts a new
-chain whose admission names the head it continues, and reports the branch.
+- A model turn (the AIMessage that holds the calls, identified by its id and
+  its calls) is decided ONCE, against the thread's current guard state, under
+  the record's lock: parallel tasks, subagents and other workers on the thread
+  serialise there, so a budget holds across all of them.
+- Each decision is bound to its call: (tool_call id, tool name, argument
+  digest). A call that matches no decided entry, or a turn whose ids repeat,
+  is refused; nothing runs under another call's verdict.
+- An effect is observed as soon as its tool returns. A crash re-run (the tool
+  raised, or the process died, before the outcome was recorded) runs it again
+  under the SAME effect, and the observation says how many attempts it took.
+  A replay of a step whose effect was already observed does NOT run the tool
+  again: the recorded result is returned.
+- A time-travel fork, a trimmed history or a re-entered thread is governed
+  against the thread's latest state, never the fork point's. A fork is reported.
 """
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import dataclasses
 import json
@@ -52,28 +48,30 @@ import logging
 import threading
 import time
 import uuid
-from collections import OrderedDict
 
 from polyflow_temporal.canonical import digest
 from polyflow_temporal.ledger import Ledger, verify_chain
 from polyflow_temporal.redact import redact
 from polyflow_temporal.rules import Guard, check_admitted, classify, route_target
-from polyflow_temporal.sinks import _load_signer, sign_head
+from polyflow_temporal.sinks import FileSink, MemorySink, _load_signer, sign_head
+
+from .store import MemoryThreadStore, sink_holds_thread, store_for
 
 log = logging.getLogger("polyflow.langgraph")
 
 META_KEY = "polyflow"
 VIA = "langgraph-tool"
-MEMO = 256
+UNKNOWN_TOOL = "<unknown tool>"
+NAME_MAX = 128
+TURNS_KEPT = 512
+RESULTS_KEPT = 256
 _UUID_EPOCH = 0x01B21DD213814000  # 1582-10-15 in 100 ns ticks
 
 
 # ---- pure helpers ----------------------------------------------------------------
 
 def checkpoint_ms(checkpoint_id) -> int | None:
-    """The time a LangGraph checkpoint was taken, in ms, read from its uuid6 id.
-
-    Stable for a checkpoint, so every re-run of a step decides at the same time."""
+    """The time a LangGraph checkpoint was taken, in ms, read from its uuid6 id."""
     try:
         u = uuid.UUID(str(checkpoint_id))
     except (TypeError, ValueError):
@@ -100,8 +98,7 @@ def govern_effect(policy, guard, state, target: str, args: list, at, proposal: s
 
     ``args`` is the argument LIST as it travels (a LangGraph tool call is
     ``[tool_call["args"]]``, so a route such as ``"0.tool_name"`` reads a generic
-    tool's first argument, as on Temporal). Returns ``(routed, cls, c, d)``:
-    the routed target, the classification, the guard's candidate and its decision.
+    tool's first argument, as on Temporal). Returns ``(routed, cls, c, d)``.
     """
     a_digest = _digest(args)
     routed = route_target(policy, target, args) if policy else target
@@ -118,68 +115,40 @@ def observe_effect(guard, state, kind: str, ok: bool, labels=None, result=None, 
     return guard.observe(state, kind, bool(ok), labels=labels, result=result if ok else None, seq=seq)
 
 
-def _messages(state) -> list:
+def idempotency_key(run: dict, effect_id: str) -> str:
+    """Unique per recorded effect, and injective: a digest of the chain and the effect (LG10)."""
+    return digest({"run": run, "effect": effect_id})
+
+
+def _args_of(tool_call: dict) -> list:
+    args = tool_call.get("args")
+    return [args if args is not None else {}]
+
+
+def _signature(tool_call: dict) -> list:
+    """What a decision is bound to: the call's id, its tool name and its argument digest."""
+    return [tool_call.get("id"), _digest(str(tool_call.get("name"))), _digest(_args_of(tool_call))]
+
+
+def _messages(state, key: str) -> list:
     if isinstance(state, dict):
-        return list(state.get("messages") or [])
+        return list(state.get(key) or [])
     if isinstance(state, list):
         return state
-    return list(getattr(state, "messages", None) or [])
+    return list(getattr(state, key, None) or [])
 
 
-def _is_tool_message(m) -> bool:
-    return getattr(m, "type", None) == "tool"
-
-
-def _meta(m):
-    md = getattr(m, "response_metadata", None)
-    meta = md.get(META_KEY) if isinstance(md, dict) else None
-    return meta if isinstance(meta, dict) and meta.get("v") == 1 else None
-
-
-def _calls_for(messages: list, tool_call: dict) -> list:
-    """The model turn a call belongs to: every call of that AIMessage, in order."""
+def _find_turn(messages: list, tool_call: dict):
+    """The model turn a call belongs to: the AIMessage holding it, and all its calls in order."""
     cid = tool_call.get("id")
     for m in reversed(messages):
         calls = getattr(m, "tool_calls", None)
         if calls and any(c.get("id") == cid for c in calls):
-            return [dict(c) for c in calls]
-    return [dict(tool_call)]
-
-
-def _last_batch(messages: list):
-    """The latest governed batch carried in the thread's state, and each call's outcome."""
-    for m in reversed(messages):
-        meta = _meta(m) if _is_tool_message(m) else None
-        if meta is None:
-            continue
-        batch = meta["batch"]
-        outcomes = {}
-        for n in messages:
-            nm = _meta(n) if _is_tool_message(n) else None
-            if nm and nm["batch"]["id"] == batch["id"] and nm["batch"]["run"] == batch["run"] and nm.get("obs"):
-                outcomes.setdefault(nm["call"], nm["obs"])
-        return batch, outcomes
-    return None, {}
-
-
-def ledger_of(state) -> dict:
-    """The ledger events carried in a thread's state, per run (``"ns/wf/run"``),
-    in chain order: the LangGraph counterpart of ``polyflow export`` rebuilding a
-    record from a Temporal history. The latest batch's outcomes are folded only
-    by the next batch or by ``close``."""
-    runs: dict = {}
-    for m in _messages(state):
-        meta = _meta(m) if _is_tool_message(m) else None
-        if meta is None:
-            continue
-        for e in meta["batch"]["events"]:
-            r = e["run"]
-            runs.setdefault(f"{r['ns']}/{r['wf']}/{r['run']}", {})[e["seq"]] = e
-    return {k: [v[s] for s in sorted(v)] for k, v in runs.items()}
+            return m, [dict(c) for c in calls]
+    return None, [dict(tool_call)]
 
 
 def _result_of(content):
-    """A tool result as the guard reads it: the JSON a tool's dict became, or the text."""
     if isinstance(content, str):
         try:
             return json.loads(content)
@@ -188,22 +157,53 @@ def _result_of(content):
     return content
 
 
+def _bounded(text, n: int = 1000):
+    return redact(text, n) if isinstance(text, str) else text
+
+
+def _clean_witness(w):
+    """Model-chosen strings in a witness (a routed tool name) are redacted and bounded (LG9)."""
+    if not isinstance(w, dict):
+        return w
+    w = copy.deepcopy(w)
+    cand = w.get("candidate") or {}
+    for k in ("kind", "target"):
+        if isinstance(cand.get(k), str):
+            cand[k] = redact(cand[k], NAME_MAX)
+    for r in w.get("rules") or []:
+        if isinstance(r.get("fix"), str):
+            r["fix"] = redact(r["fix"], 1000)
+    return w
+
+
+def _refusal(request, error: str, message: str, **extra):
+    from langchain_core.messages import ToolMessage
+    return ToolMessage(content=json.dumps({"error": error, "message": message, **extra}, ensure_ascii=False),
+                       name=str(request.tool_call.get("name"))[:NAME_MAX], tool_call_id=request.tool_call.get("id"),
+                       status="error")
+
+
 # ---- the governor ----------------------------------------------------------------
 
 class Governor:
     """Records and guards the tool calls of LangGraph agents.
 
-    ``policy`` is an ADMITTED policy (what ``polyflow policy`` prints, with its
-    digest), as for ``PolyflowPlugin``. ``sink`` is a ``FileSink``/``MemorySink``
-    (or anything with ``write(events, signed)`` and ``head(run)``); it is called
-    synchronously. ``signing_key`` ({keyId, privateKeyPem}, ``polyflow keygen``)
-    signs each exported head. ``on_conflict(run, seqs)`` hears a divergence from
-    what the sink holds (a branch, or tampering); ``on_error(err)`` hears export
-    failures. Both default to the ``polyflow.langgraph`` logger.
+    ``policy`` is an ADMITTED policy (``polyflow policy``), as for ``PolyflowPlugin``.
+    ``sink`` is a ``FileSink``/``MemorySink`` (or anything with ``write(events,
+    signed)``); ``store`` is the per-thread record (default: beside the sink;
+    required at guard level for any other sink). ``signing_key`` signs each
+    exported head. ``tools`` names the tools the node really has (``govern``
+    passes it): any other name the model uses is recorded as ``<unknown tool>``
+    and, at guard level, refused. ``messages_key`` is the state key the
+    ``ToolNode`` reads. ``allow_unthreaded`` lets calls with no thread or
+    checkpoint run (a graph with no checkpointer), each on a chain of its own;
+    without it they are refused (LG11). ``on_conflict(run, seqs)`` hears forks
+    and sink conflicts; ``on_error(err)`` hears export failures.
     """
 
-    def __init__(self, *, level: str = "observe", policy: dict | None = None, sink=None,
-                 signing_key: dict | None = None, ns: str = "langgraph", on_conflict=None, on_error=None):
+    def __init__(self, *, level: str = "observe", policy: dict | None = None, sink=None, store=None,
+                 signing_key: dict | None = None, ns: str = "langgraph", tools=None, messages_key: str = "messages",
+                 allow_unthreaded: bool = False, on_conflict=None, on_error=None):
         if level not in ("observe", "guard"):
             raise ValueError(f"unknown level '{level}' (observe | guard)")
         if level == "guard":
@@ -211,17 +211,24 @@ class Governor:
                 raise ValueError("level 'guard' needs an ADMITTED policy (run `polyflow policy <file>`; it carries kinds and a digest)")
             check_admitted(policy)
         if signing_key is not None:
-            _load_signer(signing_key)  # fail now, not with an unsigned ledger later
+            _load_signer(signing_key)
         self.level = level
         self.policy = policy if level == "guard" else None
         self.guard = Guard(self.policy) if self.policy else None
         self.sink = sink
+        self.store = store or store_for(sink)
+        if self.store is None:
+            if sink is not None and level == "guard":
+                raise ValueError("this sink's durability is unknown: pass store= (a FileThreadStore or your own) "
+                                 "so the thread's guard state is kept where the ledger is")
+            self.store = MemoryThreadStore()
         self.signing_key = signing_key
         self.ns = str(ns or "langgraph")
+        self.known = None if tools is None else {str(t) for t in tools}
+        self.messages_key = messages_key or "messages"
+        self.allow_unthreaded = allow_unthreaded
         self._on_conflict = on_conflict
         self._on_error = on_error
-        self._lock = threading.Lock()
-        self._batches: OrderedDict = OrderedDict()
         metered = [r for r in (self.policy or {}).get("rules", []) if r["type"] == "budget" and r.get("metric") != "effects"]
         self._metered_all = any(not r.get("kinds") for r in metered)
         self._metered = {k for r in metered for k in (r.get("kinds") or [])}
@@ -232,39 +239,28 @@ class Governor:
             try:
                 self._on_error(err)
                 return
-            except Exception:  # noqa: BLE001 — a reporter never fails a tool call
+            except Exception:  # noqa: BLE001
                 pass
         log.error("polyflow ledger export failed: %s", err)
 
-    def _conflict(self, run: dict, seqs: list):
+    def _conflict(self, run: dict, seqs: list, what: str):
         if self._on_conflict:
             try:
                 self._on_conflict(run, seqs)
                 return
             except Exception:  # noqa: BLE001
                 pass
-        log.warning("polyflow ledger for %s/%s diverges from the sink at seq %s: continuing on a new, linked chain",
-                    run["wf"], run["run"], ",".join(map(str, seqs)))
+        log.warning("polyflow: %s (thread %s, run %s, seq %s)", what, run["wf"], run["run"], ",".join(map(str, seqs)))
 
-    # ---- deciding a batch (pure, given the checkpointed state) ---------------------
-    def _fold(self, prev: dict, outcomes: dict, at_missing):
-        """Resume the chain after ``prev``: its head, its guard state, and its calls' outcomes."""
-        ledger = Ledger(prev["run"], prev["head"])
-        state = copy.deepcopy(prev["guard"])
-        for call in prev["calls"]:
-            if call["outcome"] != "allowed":
-                continue
-            o = outcomes.get(call["index"])
-            if o is None:
-                body = {"effect": call["effect"], "ok": False, "error": "no outcome recorded: the tool message is not in the thread's state"}
-                ok, at, result = False, at_missing, None
-            else:
-                ok, at, result = bool(o["ok"]), o["at"], o.get("result")
-                body = {"effect": call["effect"], "ok": True, "resultDigest": o["resultDigest"]} if ok else {"effect": call["effect"], "ok": False, "error": o["error"]}
-            ledger.append("observation", body, at)
-            state = observe_effect(self.guard, state, call["kind"], ok, labels=call["labels"], result=result, seq=call["guardSeq"])
-        return ledger, state
+    def _name(self, name) -> str:
+        """The tool name as the ledger records it: code-defined names as they are,
+        anything else as ``<unknown tool>``; redacted and bounded either way (LG9)."""
+        name = str(name)
+        if self.known is not None and name not in self.known:
+            return UNKNOWN_TOOL
+        return redact(name, NAME_MAX)
 
+    # ---- the record ------------------------------------------------------------------
     def _admit(self, run: dict, at, thread: str, base: str, link=None) -> Ledger:
         ledger = Ledger(run)
         admission = {"level": self.level, "policy": None}
@@ -276,220 +272,322 @@ class Governor:
         ledger.append("admission", admission, at)
         return ledger
 
-    def _build(self, thread: str, base: str, at, prev, outcomes, calls: list, branch: bool = False) -> dict:
-        if prev is not None:
-            ledger, state = self._fold(prev, outcomes, at)
-        else:
-            ledger, state = None, (self.guard.init() if self.guard else None)
-        if ledger is None or branch:
-            link = None
-            run_id = str(base)
-            if ledger is not None:
-                link = {"run": dict(ledger.run), **ledger.head()}
-                if run_id == ledger.run["run"]:
-                    run_id = f"{run_id}.branch"
-            ledger = self._admit({"ns": self.ns, "wf": thread, "run": run_id}, at, thread, base, link)
-        out_calls = []
-        for i, call in enumerate(calls):
-            tool = str(call.get("name"))
-            args = [call.get("args") if call.get("args") is not None else {}]
-            proposal = ledger.append("proposal", {"source": "model", "action": tool, "dataDigest": _digest(args)}, at)
-            pid = f"p{proposal['seq']}"
-            routed, cls, c, d = govern_effect(self.policy, self.guard, state, tool, args, at, pid)
-            entry = {"index": i, "id": call.get("id"), "tool": tool}
-            if d["outcome"] != "allow":
-                # An escalation needs a person; this binding has no inbox: refuse, never allow.
-                message = d.get("message") or f"denied by {', '.join(d['rules'])}"
-                if d["outcome"] == "escalate":
-                    message = f"escalation required ({message}); this binding cannot ask a person yet, so the effect is refused"
-                ledger.append("verdict", {"proposal": pid, "outcome": "denied", "rules": d["rules"], "witness": d.get("witness"), "reason": message}, at)
-                entry.update({"outcome": "denied", "rules": d["rules"], "message": message, "witness": d.get("witness")})
-                out_calls.append(entry)
-                continue
-            ledger.append("verdict", {"proposal": pid, "outcome": "allowed", "rules": d["rules"]}, at)
-            if self.guard:
-                state = self.guard.commit(state, c, d)
-            eid = f"e{ledger.head()['seq'] + 1}"
-            ledger.append("effect", {"id": eid, "proposal": pid, "kind": cls["kind"], "class": cls["class"], "via": VIA,
-                                     "activityType": tool, **({"route": routed} if routed != tool else {}),
-                                     "argsDigest": c["argsDigest"], "idempotencyKey": f"{thread}/{call.get('id')}"}, at)
-            entry.update({"outcome": "allowed", "effect": eid, "kind": cls["kind"], "labels": list(cls["labels"]),
-                          "guardSeq": state["seq"] if self.guard else None,
-                          "wantsResult": bool(self.guard) and (self._metered_all or cls["kind"] in self._metered)})
-            out_calls.append(entry)
-        # The batch's own segment: the previous turn's observations (none on a new
-        # chain, whose admission comes first), then this turn's decisions.
-        return {"id": str(base), "run": dict(ledger.run), "at": at, "events": ledger.events(), "head": ledger.head(),
-                "guard": state, "calls": out_calls}
+    def _new_chain(self, rec, thread: str, base: str, at):
+        """A thread's first chain, or the next one after a close (linked to the closure)."""
+        runs = rec["runs"] if rec else []
+        run_id = str(base)
+        while run_id in runs:
+            run_id += "+"
+        link = rec["closure"] if rec else None
+        ledger = self._admit({"ns": self.ns, "wf": thread, "run": run_id}, at, thread, base, link)
+        if rec is None:
+            rec = {"v": 1, "ns": self.ns, "thread": thread, "runs": [], "guard": self.guard.init() if self.guard else None,
+                   "turns": {}, "recent": [], "effects": {}, "results": {}, "pending": []}
+        rec.update({"run": dict(ledger.run), "head": ledger.head(), "closed": False, "closure": None})
+        rec["runs"].append(run_id)
+        rec["pending"].extend(ledger.events())
+        return rec
 
-    # ---- export ----------------------------------------------------------------
-    def _export(self, events: list, carried=None):
-        """Write a chain segment to the sink, backfilling from the carried state if
-        the sink is behind, and sign the head verified here. Returns the sink's
-        conflicts (a list), or None. Never raises."""
-        if self.sink is None or not events:
-            return None
-        try:
-            run = events[0]["run"]
-            head_fn = getattr(self.sink, "head", None)
-            held = head_fn(run) if callable(head_fn) else None
-            behind = callable(head_fn) and (events[0]["seq"] > held["seq"] + 1 if held else events[0]["seq"] > 0)
-            if behind and carried is not None:
-                key = f"{run['ns']}/{run['wf']}/{run['run']}"
-                have = {e["seq"]: e for e in ledger_of(carried).get(key, [])}
-                have.update({e["seq"]: e for e in events})
-                floor = held["seq"] if held else -1
-                events = [have[s] for s in sorted(have) if s > floor]
-                behind = not events or events[0]["seq"] != floor + 1
-            chk = verify_chain(events, {"seq": events[0]["seq"] - 1, "hash": events[0]["prev"]})
-            if not chk["ok"]:
-                raise ValueError(f"ledger segment does not chain at seq {chk['seq']}: {chk['reason']}")
-            if behind:
-                self._fail(ValueError(f"ledger gap for {run['wf']}/{run['run']}: the sink holds through seq "
-                                      f"{held['seq'] if held else -1}, this segment starts at {events[0]['seq']}"))
-            signed = sign_head(run, chk["head"], self.signing_key) if self.signing_key and not behind else None
-            r = self.sink.write(events, signed)
-            return (r or {}).get("conflicts") if isinstance(r, dict) else None
-        except Exception as err:  # noqa: BLE001 — export never fails a tool call
-            self._fail(err)
-            return None
+    def _export(self, rec: dict):
+        """Write the record's pending events to the sink, one run at a time, signing
+        each segment's verified head. Only this thread's own events are ever here (LG2)."""
+        if self.sink is None:
+            rec["pending"] = []
+            return
+        pending = rec["pending"]
+        while pending:
+            run = pending[0]["run"]
+            n = 0
+            while n < len(pending) and pending[n]["run"] == run:
+                n += 1
+            seg = pending[:n]
+            try:
+                if run.get("ns") != self.ns or run.get("wf") != rec["thread"]:
+                    raise ValueError("a pending segment names another thread: refused")  # cannot happen; never sign it
+                chk = verify_chain(seg, {"seq": seg[0]["seq"] - 1, "hash": seg[0]["prev"]})
+                if not chk["ok"]:
+                    raise ValueError(f"ledger segment does not chain at seq {chk['seq']}: {chk['reason']}")
+                signed = sign_head(run, chk["head"], self.signing_key) if self.signing_key else None
+                r = self.sink.write(seg, signed)
+            except Exception as err:  # noqa: BLE001 — kept pending, retried on the next write
+                self._fail(err)
+                rec["pending"] = pending
+                return
+            if isinstance(r, dict) and r.get("conflicts"):
+                self._conflict(run, r["conflicts"], "the sink holds different events for this chain (tampering, or a second store)")
+            pending = pending[n:]
+        rec["pending"] = []
 
-    def _batch_for(self, thread: str, base: str, messages: list, calls: list) -> dict:
-        key = (thread, str(base), tuple(str(c.get("id")) for c in calls))
-        with self._lock:
-            batch = self._batches.get(key)
-            if batch is not None:
-                return batch
-            at = checkpoint_ms(base)
-            if at is None:
-                at = _now_ms()  # not a uuid6 checkpoint id: a re-run would decide at a new time
-            prev, outcomes = _last_batch(messages)
-            batch = self._build(thread, base, at, prev, outcomes, calls)
-            conflicts = self._export(batch["events"], messages)
-            if conflicts:
-                # The sink holds another continuation of this chain: the thread was
-                # closed and went on, or forked from an older checkpoint. Record the
-                # branch as a new chain linked to the head it continues.
-                self._conflict(batch["run"], conflicts)
-                batch = self._build(thread, base, at, prev, outcomes, calls, branch=True)
-                again = self._export(batch["events"], messages)
-                if again:
-                    self._conflict(batch["run"], again)
-            self._batches[key] = batch
-            while len(self._batches) > MEMO:
-                self._batches.popitem(last=False)
-            return batch
+    def _decide(self, thread: str, base: str, turn_key: str, ai_id, calls: list, messages: list):
+        """Decide a model turn once, against the thread's current state. Returns the turn."""
+        with self.store.transaction(self.ns, thread) as tx:
+            rec = tx.record
+            if rec is not None and turn_key in rec["turns"]:
+                if rec["pending"]:
+                    self._export(rec)
+                    tx.commit(rec)
+                return rec["turns"][turn_key], rec
+            at = _now_ms()
+            if rec is None and self.guard and sink_holds_thread(self.sink, self.ns, thread):
+                # The ledger has a chain for this thread but its record is gone: never start
+                # a fresh guard over a thread that already spent (LG3); refuse until restored.
+                msg = "this thread's governance record is missing while its ledger exists: refused until an operator restores it"
+                return {"calls": [{"index": i, "sig": _signature(c), "outcome": "denied", "rules": ["polyflow:record-missing"],
+                                   "message": msg, "witness": None} for i, c in enumerate(calls)], "transient": True}, None
+            if rec is None or rec["closed"]:
+                rec = self._new_chain(rec, thread, base, at)
+            else:
+                self._report_fork(rec, messages)
+            ledger = Ledger(rec["run"], rec["head"])
+            state = rec["guard"]
+            ids = [c.get("id") for c in calls]
+            dup = {i for i in ids if not i or ids.count(i) > 1}
+            first = rec["head"]["seq"] + 1
+            entries = []
+            for i, call in enumerate(calls):
+                name, real = self._name(call.get("name")), str(call.get("name"))
+                args = _args_of(call)
+                proposal = ledger.append("proposal", {"source": "model", "action": name, "dataDigest": _digest(args),
+                                                      "checkpoint": str(base)}, at)
+                pid = f"p{proposal['seq']}"
+                entry = {"index": i, "id": call.get("id"), "sig": _signature(call), "name": name}
+                if call.get("id") in dup or not call.get("id"):
+                    d = {"outcome": "deny", "rules": ["polyflow:duplicate-call-id"],
+                         "message": "this turn repeats (or omits) a tool_call id; every call of the turn is refused. Retry with unique ids",
+                         "witness": {"rules": [{"id": "polyflow:duplicate-call-id", "type": "binding",
+                                                "fix": "give every tool call of a turn its own id"}]}}
+                elif self.guard and name == UNKNOWN_TOOL:
+                    d = {"outcome": "deny", "rules": ["polyflow:unknown-tool"], "message": "the node has no tool by that name",
+                         "witness": {"rules": [{"id": "polyflow:unknown-tool", "type": "binding", "fix": "call one of the node's tools"}]}}
+                else:
+                    routed, cls, c, d = govern_effect(self.policy, self.guard, state, real, args, at, pid)
+                if d["outcome"] != "allow":
+                    message = d.get("message") or f"denied by {', '.join(d['rules'])}"
+                    if d["outcome"] == "escalate":
+                        message = f"escalation required ({message}); this binding cannot ask a person yet, so the effect is refused"
+                    message, witness = _bounded(message), _clean_witness(d.get("witness"))
+                    ledger.append("verdict", {"proposal": pid, "outcome": "denied", "rules": d["rules"], "witness": witness, "reason": message}, at)
+                    entry.update({"outcome": "denied", "rules": d["rules"], "message": message, "witness": witness})
+                    entries.append(entry)
+                    continue
+                ledger.append("verdict", {"proposal": pid, "outcome": "allowed", "rules": d["rules"]}, at)
+                if self.guard:
+                    state = self.guard.commit(state, c, d)
+                eid = f"e{ledger.head()['seq'] + 1}"
+                ekey = f"{rec['run']['run']}|{eid}"
+                ledger.append("effect", {"id": eid, "proposal": pid, "kind": cls["kind"] if name != UNKNOWN_TOOL else UNKNOWN_TOOL,
+                                         "class": cls["class"], "via": VIA, "activityType": name,
+                                         **({"route": redact(routed, NAME_MAX)} if routed != real else {}),
+                                         **({"nameDigest": _digest(real)} if name == UNKNOWN_TOOL else {}),
+                                         "argsDigest": c["argsDigest"], "idempotencyKey": idempotency_key(rec["run"], eid)}, at)
+                rec["effects"][ekey] = {"run": dict(rec["run"]), "id": eid, "kind": cls["kind"], "labels": list(cls["labels"]),
+                                        "guardSeq": state["seq"] if self.guard else None, "attempts": 0, "observed": False,
+                                        "wantsResult": bool(self.guard) and (self._metered_all or cls["kind"] in self._metered)}
+                entry.update({"outcome": "allowed", "effect": ekey, "idempotencyKey": idempotency_key(rec["run"], eid)})
+                entries.append(entry)
+            turn = {"calls": entries, "first": first, "run": dict(rec["run"]), "ai": ai_id}
+            rec["turns"][turn_key] = turn
+            rec["recent"].append([turn_key, ai_id])
+            self._trim(rec)
+            rec["head"], rec["guard"] = ledger.head(), state
+            rec["pending"].extend(ledger.events())
+            self._export(rec)
+            tx.commit(rec)
+            return turn, rec
+
+    def _report_fork(self, rec: dict, messages: list):
+        """A turn decided on a state that holds an older decided turn but not the newest
+        one is a time-travel fork. It is governed against the thread's latest state; say so."""
+        present = {getattr(m, "id", None) for m in messages}
+        recent = rec["recent"]
+        for j in range(len(recent) - 1, -1, -1):
+            if recent[j][1] is not None and recent[j][1] in present:
+                if j < len(recent) - 1:
+                    later = rec["turns"].get(recent[j + 1][0])
+                    self._conflict(rec["run"], [later["first"]] if later else [],
+                                   "a time-travel fork: governed against the thread's latest guard state, not the fork point's")
+                return
+
+    def _trim(self, rec: dict):
+        while len(rec["recent"]) > TURNS_KEPT:
+            key, _ = rec["recent"].pop(0)
+            turn = rec["turns"].pop(key, None) or {}
+            for e in turn.get("calls", []):
+                eff = rec["effects"].get(e.get("effect"))
+                if eff and eff["observed"]:
+                    rec["effects"].pop(e["effect"], None)
+                    rec["results"].pop(e["effect"], None)
+
+    def _start(self, thread: str, ekey: str):
+        with self.store.transaction(self.ns, thread) as tx:
+            rec = tx.record
+            eff = rec["effects"].get(ekey)
+            if eff is None or eff["observed"]:
+                return "replay", (rec["results"].get(ekey), eff)
+            eff["attempts"] += 1
+            tx.commit(rec)
+            return "run", eff["attempts"]
+
+    def _finish(self, thread: str, ekey: str, ok: bool, content, status, via_command=False):
+        with self.store.transaction(self.ns, thread) as tx:
+            rec = tx.record
+            eff = rec["effects"].get(ekey)
+            if eff is None or eff["observed"]:
+                return eff
+            body = {"effect": eff["id"], "ok": bool(ok)}
+            if ok:
+                body["resultDigest"] = _digest(None if via_command else content)
+            else:
+                body["error"] = redact(content if isinstance(content, str) else json.dumps(content, default=str), 200)
+            if eff["attempts"] > 1:
+                body["attempts"] = eff["attempts"]
+            if eff["run"] == rec["run"] and not rec["closed"]:
+                ledger = Ledger(rec["run"], rec["head"])
+                ledger.append("observation", body, _now_ms())
+                rec["head"] = ledger.head()
+                rec["pending"].extend(ledger.events())
+                result = _result_of(content) if ok and eff["wantsResult"] and not via_command else None
+                rec["guard"] = observe_effect(self.guard, rec["guard"], eff["kind"], ok, labels=eff["labels"], result=result, seq=eff["guardSeq"])
+            eff["observed"] = True
+            if not via_command:
+                rec["results"][ekey] = {"content": content, "status": status}
+                while len(rec["results"]) > RESULTS_KEPT:
+                    rec["results"].pop(next(iter(rec["results"])))
+            self._export(rec)
+            tx.commit(rec)
+            return eff
 
     # ---- the ToolNode seam -------------------------------------------------------------
     def _enter(self, request):
+        """Decide (or find) the call's turn and bind the call to its entry. Returns
+        ("return", message) or ("run", thread, entry)."""
         info = getattr(getattr(request, "runtime", None), "execution_info", None)
-        thread = str(getattr(info, "thread_id", None) or "default")
-        base = getattr(info, "checkpoint_id", None) or f"unpersisted-{uuid.uuid4()}"
-        messages = _messages(request.state)
-        calls = _calls_for(messages, request.tool_call)
-        batch = self._batch_for(thread, base, messages, calls)
-        cid = request.tool_call.get("id")
-        call = next((c for c in batch["calls"] if c["id"] == cid), None)
-        return batch, call
+        thread = getattr(info, "thread_id", None)
+        base = getattr(info, "checkpoint_id", None)
+        if not thread or not base:
+            if not self.allow_unthreaded:
+                return "return", _refusal(request, "PolyflowRefused",
+                                          "no thread or checkpoint to govern this call against (compile the graph with a checkpointer, "
+                                          "and use langgraph>=1.2); refused")
+            thread, base = str(thread or f"unthreaded-{uuid.uuid4()}"), str(base or uuid.uuid4())
+        thread = str(thread)
+        messages = _messages(request.state, self.messages_key)
+        ai, calls = _find_turn(messages, request.tool_call)
+        if ai is None and self.guard:
+            return "return", _refusal(request, "PolyflowRefused",
+                                      f"the model turn holding this call is not in the state's '{self.messages_key}': refused")
+        ai_id = getattr(ai, "id", None) if ai is not None else None
+        turn_key = digest({"ai": ai_id, "calls": [_signature(c) for c in calls]})
+        turn, _ = self._decide(thread, str(base), turn_key, ai_id, calls, messages)
+        sig = _signature(request.tool_call)
+        matches = [e for e in turn["calls"] if e["sig"] == sig]
+        if len(matches) != 1:
+            return "return", _refusal(request, "PolyflowRefused", "this call does not match exactly one decided call of its turn: refused")
+        entry = matches[0]
+        if entry["outcome"] != "allowed":
+            return "return", _refusal(request, "PolyflowDenied", entry["message"], rules=entry["rules"], witness=entry["witness"])
+        kind, detail = self._start(thread, entry["effect"])
+        if kind == "replay":
+            return "return", self._replayed(request, entry, *detail)
+        return "run", thread, entry
 
-    def _meta_for(self, batch: dict, call: dict, obs=None) -> dict:
-        return {"v": 1, "batch": batch, "call": call["index"], **({"obs": obs} if obs else {})}
-
-    def _denied(self, request, batch: dict, call: dict):
+    def _replayed(self, request, entry, result, eff):
         from langchain_core.messages import ToolMessage
-        content = json.dumps({"error": "PolyflowDenied", "message": call["message"], "rules": call["rules"],
-                              "witness": call["witness"]}, ensure_ascii=False)
-        return ToolMessage(content=content, name=call["tool"], tool_call_id=request.tool_call.get("id"), status="error",
-                           response_metadata={META_KEY: self._meta_for(batch, call)})
+        md = {META_KEY: {"effect": entry["effect"], "replayed": True}}
+        if result is None:
+            return ToolMessage(content=json.dumps({"error": "PolyflowReplay", "message": "this call already ran; its result is not "
+                                                   "retained, and it is not run again"}), name=entry["name"],
+                               tool_call_id=request.tool_call.get("id"), status="error", response_metadata=md)
+        return ToolMessage(content=result["content"], name=entry["name"], tool_call_id=request.tool_call.get("id"),
+                           status=result.get("status") or "success", response_metadata=md)
 
-    def _carry(self, result, batch: dict, call: dict):
-        """Attach the call's outcome to the ToolMessage it produced, so it rides in the checkpoint."""
+    def _after(self, thread: str, entry: dict, result):
         from langchain_core.messages import ToolMessage
+        hint = {META_KEY: {"effect": entry["effect"], "idempotencyKey": entry["idempotencyKey"]}}
 
         def tag(msg):
-            ok = getattr(msg, "status", "success") != "error"
-            obs = {"ok": ok, "at": _now_ms()}
-            if ok:
-                obs["resultDigest"] = _digest(msg.content)
-                if call.get("wantsResult"):
-                    obs["result"] = _result_of(msg.content)
-            else:
-                obs["error"] = redact(msg.content if isinstance(msg.content, str) else json.dumps(msg.content, default=str), 200)
-            md = {**(msg.response_metadata or {}), META_KEY: self._meta_for(batch, call, obs)}
-            return msg.model_copy(update={"response_metadata": md})
+            return msg.model_copy(update={"response_metadata": {**(msg.response_metadata or {}), **hint}})
 
         if isinstance(result, ToolMessage):
+            self._finish(thread, entry["effect"], getattr(result, "status", "success") != "error", result.content, result.status)
             return tag(result)
         update = getattr(result, "update", None)
-        if isinstance(update, dict) and isinstance(update.get("messages"), list):
-            msgs = [tag(m) if isinstance(m, ToolMessage) and m.tool_call_id == call["id"] else m for m in update["messages"]]
-            return dataclasses.replace(result, update={**update, "messages": msgs})
-        # A Command without this call's ToolMessage: the outcome is not carried, and
-        # the next batch records it as "no outcome recorded".
+        msgs = update.get("messages") if isinstance(update, dict) else None
+        mine = [m for m in (msgs or []) if isinstance(m, ToolMessage) and m.tool_call_id == entry["id"]]
+        if mine:
+            self._finish(thread, entry["effect"], mine[0].status != "error", mine[0].content, mine[0].status)
+            new = [tag(m) if m is mine[0] else m for m in msgs]
+            return dataclasses.replace(result, update={**update, "messages": new})
+        self._finish(thread, entry["effect"], True, None, None, via_command=True)
         return result
 
     def wrap_tool_call(self, request, execute):
-        """``ToolNode(wrap_tool_call=...)`` / ``AgentMiddleware.wrap_tool_call``."""
-        batch, call = self._enter(request)
-        if call is None:
-            return execute(request)  # not a call of the governed turn (cannot happen via ToolNode)
-        if call["outcome"] != "allowed":
-            return self._denied(request, batch, call)
-        return self._carry(execute(request), batch, call)
+        """``ToolNode(wrap_tool_call=...)``."""
+        step = self._enter(request)
+        if step[0] == "return":
+            return step[1]
+        _, thread, entry = step
+        return self._after(thread, entry, execute(request))  # an exception leaves the effect open: a re-run retries it
 
     async def awrap_tool_call(self, request, execute):
-        """The async form. The sink is still written synchronously."""
-        batch, call = self._enter(request)
-        if call is None:
-            return await execute(request)
-        if call["outcome"] != "allowed":
-            return self._denied(request, batch, call)
-        return self._carry(await execute(request), batch, call)
+        """The async form: the record and the sink are written off the event loop (AS1)."""
+        step = await asyncio.to_thread(self._enter, request)
+        if step[0] == "return":
+            return step[1]
+        _, thread, entry = step
+        result = await execute(request)
+        return await asyncio.to_thread(self._after, thread, entry, result)
 
     # ---- closing and inspecting -------------------------------------------------------
-    def snapshot(self, state) -> dict | None:
-        """Where the chain stands in a thread's state: its run, head and guard state,
-        after folding the latest outcomes (nothing is appended or written)."""
-        prev, outcomes = _last_batch(_messages(state))
-        if prev is None:
+    def snapshot(self, thread: str) -> dict | None:
+        """The thread's current chain, head and guard state (from its record)."""
+        rec = self.store.peek(self.ns, str(thread))
+        if rec is None:
             return None
-        ledger, guard_state = self._fold(prev, outcomes, 0)
-        return {"run": dict(ledger.run), "head": ledger.head(), "guard": guard_state}
+        return {"run": rec["run"], "head": rec["head"], "guard": rec["guard"], "closed": rec["closed"], "runs": list(rec["runs"])}
 
     def close(self, graph, config, outcome: str = "completed") -> dict | None:
-        """Fold the last outcomes, append the closure, and export: the thread's record
-        is finished. Idempotent for the same final checkpoint. A thread that goes on
-        after a close starts a new chain, linked to this one."""
-        snap = graph.get_state(config)
-        messages = _messages(snap.values)
-        prev, outcomes = _last_batch(messages)
-        if prev is None:
-            return None
-        base = (snap.config or {}).get("configurable", {}).get("checkpoint_id")
-        at = checkpoint_ms(base)
-        if at is None:
-            at = _now_ms()
-        ledger, state = self._fold(prev, outcomes, at)
-        ledger.append("closure", {"outcome": outcome}, at)
-        events = ledger.events()
-        conflicts = self._export(events, messages)
-        if conflicts:
-            self._conflict(ledger.run, conflicts)
-        return {"run": dict(ledger.run), "head": ledger.head(), "guard": state, "events": events}
+        """Append the closure to the thread's chain and export it. An effect still open
+        is observed as "no outcome recorded before close". Idempotent. A thread that
+        goes on afterwards starts a new chain whose admission ``continues`` the closure."""
+        thread = str(((config or {}).get("configurable") or {}).get("thread_id"))
+        with self.store.transaction(self.ns, thread) as tx:
+            rec = tx.record
+            if rec is None:
+                return None
+            if not rec["closed"]:
+                ledger = Ledger(rec["run"], rec["head"])
+                at = _now_ms()
+                for eff in rec["effects"].values():
+                    if not eff["observed"] and eff["run"] == rec["run"]:
+                        ledger.append("observation", {"effect": eff["id"], "ok": False, "error": "no outcome recorded before close"}, at)
+                        eff["observed"] = True
+                ledger.append("closure", {"outcome": outcome}, at)
+                rec["head"] = ledger.head()
+                rec["closed"] = True
+                rec["closure"] = {"run": dict(rec["run"]), **ledger.head()}
+                rec["pending"].extend(ledger.events())
+            self._export(rec)
+            tx.commit(rec)
+            return {"run": dict(rec["run"]), "head": rec["head"], "guard": rec["guard"]}
 
 
-def govern(tools, *, level: str = "observe", policy: dict | None = None, sink=None, signing_key: dict | None = None,
-           ns: str = "langgraph", on_conflict=None, on_error=None, **tool_node_kwargs):
+def govern(tools, *, level: str = "observe", policy: dict | None = None, sink=None, store=None,
+           signing_key: dict | None = None, ns: str = "langgraph", allow_unthreaded: bool = False,
+           on_conflict=None, on_error=None, **tool_node_kwargs):
     """A ``ToolNode`` over ``tools`` whose every call is recorded (and, at
     ``level="guard"``, decided by ``policy``). Pass it where the tool list went:
     ``create_react_agent(model, govern(tools, ...))``. The ``Governor`` is on
-    ``.governor``. Extra keyword arguments go to ``ToolNode``."""
+    ``.governor``. Extra keyword arguments go to ``ToolNode`` (``messages_key``
+    is also given to the governor)."""
     from langgraph.prebuilt import ToolNode
 
-    governor = Governor(level=level, policy=policy, sink=sink, signing_key=signing_key, ns=ns,
-                        on_conflict=on_conflict, on_error=on_error)
     if isinstance(tools, ToolNode):
         tools = list(tools.tools_by_name.values())
+    names = list(ToolNode(tools).tools_by_name)  # the names the node really has (LG9)
+    governor = Governor(level=level, policy=policy, sink=sink, store=store, signing_key=signing_key, ns=ns,
+                        tools=names, messages_key=tool_node_kwargs.get("messages_key", "messages"),
+                        allow_unthreaded=allow_unthreaded, on_conflict=on_conflict, on_error=on_error)
     node = ToolNode(tools, wrap_tool_call=governor.wrap_tool_call, awrap_tool_call=governor.awrap_tool_call, **tool_node_kwargs)
     node.governor = governor
     return node
@@ -499,3 +597,81 @@ def close(governed, graph, config, outcome: str = "completed"):
     """``governed`` is what ``govern`` returned, or a ``Governor``."""
     governor = governed if isinstance(governed, Governor) else governed.governor
     return governor.close(graph, config, outcome)
+
+
+# ---- checking a thread's record (VF1) ---------------------------------------------
+
+def _thread_runs(sink, ns: str, thread: str) -> dict:
+    out = {}
+    if isinstance(sink, MemorySink):
+        for (n, w, run), r in sink.runs.items():
+            if n == ns and w == thread:
+                out[run] = [r["events"][s] for s in sorted(r["events"])]
+    elif isinstance(sink, FileSink):
+        from polyflow_temporal.sinks import safe_component
+        d = sink.root.resolve() / safe_component(ns) / safe_component(thread)
+        if d.is_dir():
+            for p in d.iterdir():
+                if p.name.endswith(".jsonl") and not p.name.endswith(".heads.jsonl"):
+                    events = sorted(sink._read_jsonl(p), key=lambda e: e.get("seq", -1))
+                    if events:
+                        out[events[0]["run"]["run"]] = events
+    else:
+        raise TypeError("verify_thread reads a FileSink or a MemorySink")
+    return out
+
+
+def verify_thread(sink, thread: str, ns: str = "langgraph") -> dict:
+    """What ``polyflow verify`` does not check for this binding (VF1): every chain of
+    a thread, as one record. Each chain verifies; exactly one chain starts the
+    thread; every other one ``continues`` a CLOSURE of another chain of the thread,
+    and no closure is continued twice; at most one chain is open, and it is the
+    last; every effect follows its proposal's ``allowed`` verdict; every
+    observation names an effect of its chain, once."""
+    problems = []
+    runs = _thread_runs(sink, ns, str(thread))
+    if not runs:
+        return {"ok": False, "problems": ["no chain for this thread"], "chains": 0}
+    roots, continued, open_runs = [], {}, []
+    for run_id, events in runs.items():
+        chk = verify_chain(events)
+        if not chk["ok"]:
+            problems.append(f"{run_id}: chain breaks at seq {chk['seq']}: {chk['reason']}")
+            continue
+        first = events[0]
+        if first["kind"] != "admission" or first["body"].get("execution", {}).get("thread") != str(thread):
+            problems.append(f"{run_id}: does not start with this thread's admission")
+        link = first["body"].get("continues") if first["kind"] == "admission" else None
+        if not link:
+            roots.append(run_id)
+        else:
+            target = runs.get((link.get("run") or {}).get("run"))
+            at = next((e for e in target or [] if e["seq"] == link.get("seq")), None)
+            if at is None or at["hash"] != link.get("hash") or at["kind"] != "closure":
+                problems.append(f"{run_id}: its continues link does not resolve to a closure of this thread")
+            key = (json.dumps(link.get("run"), sort_keys=True), link.get("seq"))
+            if key in continued:
+                problems.append(f"{run_id} and {continued[key]} both continue the same closure")
+            continued[key] = run_id
+        if not any(e["kind"] == "closure" for e in events):
+            open_runs.append(run_id)
+        verdicts, effects, observed = {}, {}, set()
+        for e in events:
+            b = e["body"]
+            if e["kind"] == "verdict":
+                verdicts[b.get("proposal")] = b.get("outcome")
+            elif e["kind"] == "effect":
+                if verdicts.get(b.get("proposal")) != "allowed":
+                    problems.append(f"{run_id}: effect {b.get('id')} does not follow an allowed verdict")
+                effects[b.get("id")] = e
+            elif e["kind"] == "observation":
+                if b.get("effect") not in effects:
+                    problems.append(f"{run_id}: observation of unknown effect {b.get('effect')}")
+                if b.get("effect") in observed:
+                    problems.append(f"{run_id}: effect {b.get('effect')} observed twice")
+                observed.add(b.get("effect"))
+    if len(roots) != 1:
+        problems.append(f"the thread has {len(roots)} unlinked chains; it must have exactly one")
+    if len(open_runs) > 1:
+        problems.append(f"the thread has {len(open_runs)} open chains: {sorted(open_runs)}")
+    return {"ok": not problems, "problems": problems, "chains": len(runs), "open": open_runs}

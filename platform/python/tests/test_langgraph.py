@@ -23,7 +23,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     from langgraph.prebuilt import create_react_agent  # noqa: E402
 
-from polyflow_langgraph import Governor, checkpoint_ms, govern, govern_effect, ledger_of, observe_effect  # noqa: E402
+from polyflow_langgraph import Governor, checkpoint_ms, govern, govern_effect, idempotency_key, observe_effect, verify_thread  # noqa: E402
 from polyflow_temporal.canonical import digest  # noqa: E402
 from polyflow_temporal.ledger import verify_chain  # noqa: E402
 from polyflow_temporal.rules import Guard, route_target  # noqa: E402
@@ -169,7 +169,7 @@ def test_every_tool_call_is_recorded_and_the_guard_decides(refunds_policy):
                         ("denied", ["read-before-refund", "one-refund"])]   # a read licenses ONE refund (consume)
     effects = [e["body"] for e in events if e["kind"] == "effect"]
     assert [(b["activityType"], b["kind"], b["via"]) for b in effects] == [("read_ticket", "read", "langgraph-tool"), ("issue_refund", "refund", "langgraph-tool")]
-    assert effects[1]["idempotencyKey"] == "a/c3"
+    assert effects[1]["idempotencyKey"] == idempotency_key(events[0]["run"], effects[1]["id"])
     assert all(e["body"]["ok"] for e in events if e["kind"] == "observation")
     # Only the allowed calls ran.
     assert CALLS == [("read_ticket", "T1"), ("issue_refund", "T1")]
@@ -262,9 +262,10 @@ def test_a_thread_resumed_in_a_fresh_process_continues_one_chain(refunds_policy)
     assert sum(e["kind"] == "admission" for e in events) == 1
     assert [e["body"]["activityType"] for e in events if e["kind"] == "effect"] == ["read_ticket", "issue_refund"]
     assert [e["body"]["outcome"] for e in events if e["kind"] == "verdict"] == ["allowed", "allowed", "denied"]
-    # The chain carried in the checkpoint is the chain in the sink.
-    carried = next(iter(ledger_of(out).values()))
-    assert [e["hash"] for e in carried] == [e["hash"] for e in events[:len(carried)]]
+    # The thread's record (beside the sink) is at the sink's head, and the thread verifies as one record.
+    assert second.governor.snapshot("c")["head"] == {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
+    assert verify_thread(sink, "c")["ok"]
+    assert out["messages"][-1].content.startswith("final")
 
 
 def test_a_step_that_dies_mid_tool_is_re_run_but_recorded_once_and_charged_once(refunds_policy):
@@ -298,9 +299,14 @@ def test_a_step_that_dies_mid_tool_is_re_run_but_recorded_once_and_charged_once(
     effects = [e["body"] for e in events if e["kind"] == "effect"]
     # Each proposed call is ONE effect, however often it ran; the re-run refund is the
     # same effect (same idempotency key), not a second refund the budget would refuse.
-    assert [(b["activityType"], b["idempotencyKey"]) for b in effects] == [("read_ticket", "crash/c1"), ("read_ticket", "crash/c2"), ("issue_refund", "crash/c3")]
+    assert [b["activityType"] for b in effects] == ["read_ticket", "read_ticket", "issue_refund"]
+    assert len({b["idempotencyKey"] for b in effects}) == 3
+    # The re-executions are recorded, not hidden: the observation says how many attempts it took.
+    attempts = {e["body"]["effect"]: e["body"].get("attempts", 1) for e in events if e["kind"] == "observation"}
+    assert attempts[effects[1]["id"]] == 2 and attempts[effects[2]["id"]] == 2 and attempts[effects[0]["id"]] in (1, 2)
+    assert verify_thread(sink, "crash")["ok"]
     assert [e["body"]["outcome"] for e in events if e["kind"] == "verdict"] == ["allowed", "allowed", "allowed", "denied"]
-    snap = tools3.governor.snapshot(out)
+    snap = tools3.governor.snapshot("crash")
     assert snap["guard"]["n"] == {"read": 2, "refund": 1}
     assert snap["guard"]["ok"] == {"read": 2, "refund": 1}
 
@@ -317,7 +323,7 @@ def test_a_closed_thread_that_goes_on_starts_a_linked_chain(refunds_policy):
     # The user comes back to the same thread; the model tries a second refund.
     more = agent(tools, REFUND_SCRIPT[1:3] + [[], [call("issue_refund", "c9", ticket="T1", amount=25)]], saver)
     more.invoke({"messages": [("user", "and again")]}, cfg("more"))
-    assert len(branches) == 1
+    assert branches == []  # the record knows the chain was closed: a linked chain, not a conflict
     old = [r for k, r in sink.runs.items() if k[2] == closed["run"]["run"]][0]
     new = [r for k, r in sink.runs.items() if k[1] == "more" and k[2] != closed["run"]["run"]][0]
     new_events = [new["events"][s] for s in sorted(new["events"])]
@@ -326,6 +332,7 @@ def test_a_closed_thread_that_goes_on_starts_a_linked_chain(refunds_policy):
     assert link["run"] == closed["run"] and old["events"][link["seq"]]["hash"] == link["hash"]
     # The guard state belongs to the thread: the refund budget is still spent.
     assert [e["body"]["outcome"] for e in new_events if e["kind"] == "verdict"] == ["denied"]
+    assert verify_thread(sink, "more")["ok"]
 
 
 # ---- (d): the TypeScript verifier accepts a LangGraph ledger ---------------------
@@ -418,3 +425,81 @@ def test_a_checkpoint_id_carries_its_time():
 def test_guard_level_needs_an_admitted_policy():
     with pytest.raises(ValueError, match="ADMITTED"):
         Governor(level="guard", policy={"policy": "x"})
+
+
+# ---- after the P10 review --------------------------------------------------------
+
+def test_verify_thread_reports_unlinked_chains_and_effects_without_an_allowed_verdict():
+    from polyflow_temporal.ledger import Ledger
+    sink = MemorySink()
+    for run_id in ("r1", "r2"):   # two chains for one thread, neither linked to the other
+        led = Ledger({"ns": "langgraph", "wf": "t", "run": run_id})
+        led.append("admission", {"level": "guard", "execution": {"engine": "langgraph", "thread": "t"}}, 1)
+        led.append("proposal", {"source": "model", "action": "issue_refund"}, 2)
+        led.append("verdict", {"proposal": "p1", "outcome": "denied", "rules": ["one-refund"]}, 2)
+        led.append("effect", {"id": "e3", "proposal": "p1", "kind": "refund"}, 2)
+        sink.write(led.events(), None)
+    r = verify_thread(sink, "t")
+    assert not r["ok"]
+    assert any("2 unlinked chains" in p for p in r["problems"])
+    assert any("does not follow an allowed verdict" in p for p in r["problems"])
+    assert any("2 open chains" in p for p in r["problems"])
+
+
+def test_a_thread_whose_record_is_missing_while_its_ledger_exists_is_refused(refunds_policy):
+    sink = MemorySink()
+    tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink)
+    agent(tools, REFUND_SCRIPT[1:3]).invoke({"messages": [("user", "refund T1")]}, cfg("lost"))
+    sink._polyflow_threads = None   # the record is lost; the ledger is not
+    CALLS.clear()
+    fresh = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=sink)
+    out = agent(fresh, REFUND_SCRIPT[1:3]).invoke({"messages": [("user", "refund T1")]}, cfg("lost"))
+    assert CALLS == []   # never a fresh guard over a thread that already spent
+    assert "record-missing" in [m for m in out["messages"] if isinstance(m, ToolMessage)][0].content
+
+
+def test_no_checkpointer_is_refused_unless_explicitly_allowed(refunds_policy):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        refused = create_react_agent(ScriptedModel(script=REFUND_SCRIPT[1:2]), govern([read_ticket, issue_refund]))
+        allowed = create_react_agent(ScriptedModel(script=REFUND_SCRIPT[1:2]), govern([read_ticket, issue_refund], allow_unthreaded=True))
+    out = refused.invoke({"messages": [("user", "x")]})
+    assert CALLS == [] and "PolyflowRefused" in out["messages"][2].content
+    allowed.invoke({"messages": [("user", "x")]})
+    assert CALLS == [("read_ticket", "T1")]
+
+
+def test_the_typescript_cli_verifies_a_thread_of_linked_chains(refunds_policy, tmp_path):
+    # VF1: `polyflow verify --thread <dir>` checks every chain of a thread as one record.
+    key_dir = tmp_path / "keys"
+    subprocess.run(["node", str(CLI), "keygen", "--id", "lg-worker", "--out", str(key_dir)], check=True, capture_output=True)
+    key = json.loads((key_dir / "lg-worker.key.json").read_text())
+    saver, root = InMemorySaver(), tmp_path / "ledger"
+    tools = govern([read_ticket, issue_refund], level="guard", policy=refunds_policy, sink=FileSink(root), signing_key=key)
+    graph = agent(tools, REFUND_SCRIPT[1:3], saver)
+    graph.invoke({"messages": [("user", "refund T1")]}, cfg("linked"))
+    tools.governor.close(graph, cfg("linked"))
+    # The thread continues after close: a second chain, linked to the first closure.
+    graph2 = agent(tools, REFUND_SCRIPT[1:3] + [[], [call("issue_refund", "c9", ticket="T1", amount=25)]], saver)
+    graph2.invoke({"messages": [("user", "again")]}, cfg("linked"))
+    tools.governor.close(graph2, cfg("linked"))
+    dirs = {p.parent for p in root.rglob("*.jsonl") if not p.name.endswith(".heads.jsonl")}
+    assert len(dirs) == 1
+    thread_dir = dirs.pop()
+    run = lambda: subprocess.run(["node", str(CLI), "verify", "--thread", str(thread_dir), "--trust", str(key_dir / "trust.json")], capture_output=True, text=True)
+    out = run()
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "  link        " in out.stdout and "one thread: every chain verifies" in out.stdout, out.stdout
+    # An unlinked chain dropped into the thread's directory is refused.
+    first = sorted(p for p in thread_dir.glob("*.jsonl") if not p.name.endswith(".heads.jsonl"))[0]
+    rogue = thread_dir / "rogue.jsonl"
+    lines = first.read_text().splitlines()
+    from polyflow_temporal.ledger import Ledger
+    led = Ledger({"ns": json.loads(lines[0])["run"]["ns"], "wf": json.loads(lines[0])["run"]["wf"], "run": "rogue"})
+    led.append("admission", {"level": "guard", "execution": {"engine": "langgraph", "thread": "linked"}}, 1)
+    led.append("closure", {"outcome": "completed"}, 2)
+    rogue.write_text("\n".join(json.dumps(e) for e in led.events()) + "\n")
+    out = run()
+    assert out.returncode == 1 and "rogue" in out.stdout, out.stdout   # unsigned: nothing anchors it
+    unsigned = subprocess.run(["node", str(CLI), "verify", "--thread", str(thread_dir), "--unsigned"], capture_output=True, text=True)
+    assert unsigned.returncode == 1 and "unlinked chains" in unsigned.stdout, unsigned.stdout

@@ -4,7 +4,7 @@ export { PolyflowPlugin, exporter } from './plugin.mjs';
 export { fileSink, memorySink, runPaths, readJsonl, signHead, verifyHead, generateSigningKey, headMessage } from './sink.mjs';
 export { ledgerFromHistory } from './history.mjs';
 export { LEDGER_HEADER, HEAD_HEADER, FLUSH_ACTIVITY } from './constants.mjs';
-export { verifyBundle } from './verify.mjs';
+export { verifyBundle, verifyThread } from './verify.mjs';
 export { loadMachineDir } from './plugin.mjs';
 export { startGoverned, workflowIdFor } from './client.mjs';
 export { artefactFiles, artefactDigests, signCertificate, verifyCertificate, checkMachineDir, CERTIFICATE_FILE } from './certificates.mjs';

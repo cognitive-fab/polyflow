@@ -122,12 +122,15 @@ class FileSink:
     A delta with a different event at a held seq, or one that forks the held
     chain, is refused whole and REPORTED (``{"conflicts": [seq, ...]}``): that is
     what tampering, or a split brain, looks like. One writer process per run
-    directory, as in TypeScript.
+    directory, as in TypeScript. The cache of what a run file holds is re-read
+    when the file changed under it (another process appended; P10 review LG7),
+    so a stale cache never re-appends events another writer wrote.
     """
 
     def __init__(self, root: str | os.PathLike):
         self.root = Path(root)
         self._known: dict = {}  # (ns, wf, run) -> {seq: {"hash", "prev"}}
+        self._sizes: dict = {}  # (ns, wf, run) -> the run file's size when last read or written
 
     _safe = staticmethod(safe_component)
 
@@ -152,9 +155,20 @@ class FileSink:
                         continue  # non-strict, as the TS sink: a verifier reads strictly
         return out
 
+    @staticmethod
+    def _size(path: Path):
+        try:
+            return path.stat().st_size
+        except OSError:
+            return None
+
     def _seen(self, run: dict) -> dict:
         k = (run["ns"], run["wf"], run["run"])
+        ev = self.paths(run)[1]
+        if k in self._known and self._sizes.get(k) != self._size(ev):
+            del self._known[k]  # another writer changed the file: re-read it
         if k not in self._known:
+            self._sizes[k] = self._size(ev)
             # Only this run's events count, whatever else the file holds.
             self._known[k] = {e["seq"]: {"hash": e["hash"], "prev": e.get("prev")}
                               for e in self._read_jsonl(self.paths(run)[1])
@@ -175,6 +189,7 @@ class FileSink:
                 seen[e["seq"]] = {"hash": e["hash"], "prev": e["prev"]}
             with ev.open("a", encoding="utf-8") as f:
                 f.write("".join(_jsonl(e) + "\n" for e in fresh))
+            self._sizes[(run["ns"], run["wf"], run["run"])] = self._size(ev)
             if signed:
                 with hd.open("a", encoding="utf-8") as f:
                     f.write(_jsonl(signed) + "\n")

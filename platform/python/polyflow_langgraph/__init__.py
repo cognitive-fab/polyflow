@@ -12,6 +12,9 @@ call exactly as it decides an activity on Temporal (plan P10).
     ...
     tools.governor.close(agent, config)                             # optional: the final closure
 
+The thread's chain and guard state live in a per-thread record beside the sink
+(store.py), never in the agent's messages.
+
 See docs/platform/research/06-second-engine-langgraph.md for what is bound, what
 differs from Temporal and what LangGraph does not guarantee.
 """
@@ -23,9 +26,11 @@ from .binding import (
     close,
     govern,
     govern_effect,
-    ledger_of,
+    idempotency_key,
     observe_effect,
+    verify_thread,
 )
+from .store import FileThreadStore, MemoryThreadStore
 
 __all__ = [
     "META_KEY",
@@ -34,6 +39,9 @@ __all__ = [
     "close",
     "govern",
     "govern_effect",
-    "ledger_of",
+    "idempotency_key",
     "observe_effect",
+    "verify_thread",
+    "FileThreadStore",
+    "MemoryThreadStore",
 ]
